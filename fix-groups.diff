@@ -1,0 +1,16 @@
+diff --git a/src/input.js b/src/input.js
+index 4af534b..373386d 100644
+--- a/src/input.js
++++ b/src/input.js
+@@ -161,8 +161,9 @@ function init(container){
+     if(UI.chatOpen){ if(e.key==='Escape')UI.closeChat(); return; }
+     if(e.key==='Enter'){ UI.openChat(); e.preventDefault(); return; }
+     keys[e.key.toLowerCase()]=true;
+-    if(e.key>='1'&&e.key<='9'){
+-      const d=e.key;
++    const digitCode=(e.code&&(e.code.startsWith('Digit')||e.code.startsWith('Numpad')))?e.code.replace('Digit','').replace('Numpad',''):null;
++    if(digitCode>='1'&&digitCode<='9'){
++      const d=digitCode;
+       if(e.shiftKey){ // assign group
+         if(selection.length){ groups[d]=selection.slice(); UI.toast('Group '+d+' assigned ('+selection.length+' units)'); }
+       } else {

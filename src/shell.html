@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Empires — a real-time strategy game</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="selbox"></div>
+
+<div id="topbar">
+  <div class="res"><span id="ic-wood"></span><b id="r-wood">0</b></div>
+  <div class="res"><span id="ic-food"></span><b id="r-food">0</b></div>
+  <div class="res"><span id="ic-gold"></span><b id="r-gold">0</b></div>
+  <div class="res"><span id="ic-pop"></span><b id="r-pop">0/0</b></div>
+  <div id="agename">Dark Age</div>
+  <button class="tbtn" id="btn-mute" title="Toggle sound (M)">Sound</button>
+  <button class="tbtn" id="btn-help" title="Help (H)">Help</button>
+</div>
+
+<div id="agebanner"></div>
+<div id="toast"></div>
+<div id="hint"></div>
+
+<div id="mmwrap"><canvas id="minimap" width="176" height="176"></canvas></div>
+<div id="selpanel"><div class="dim">Nothing selected</div></div>
+<div id="cmdcard"></div>
+
+<div id="overlay">
+  <div id="over-title"></div>
+  <div id="over-sub"></div>
+  <button id="btn-restart">Play again</button>
+</div>
+
+<div id="help">
+  <div id="helpbox">
+    <h2>How to play</h2>
+    <p><b>Goal:</b> destroy the enemy Town Center in the far corner of the map before they destroy yours.</p>
+    <p><b>Select:</b> left-click a unit, or drag a box around several. <b>Order:</b> right-click to move, gather (on trees, berries, gold), or attack an enemy.</p>
+    <p><b>Economy:</b> villagers gather wood, food, and gold and return it to your Town Center. Train more villagers there. Build Farms when berries run out, and Houses to raise your population cap.</p>
+    <p><b>Military:</b> build a Barracks for swordsmen. Advance ages at the Town Center to unlock the Archery Range, Stable, and Siege Workshop — and stronger troops.</p>
+    <p><b>Camera:</b> W A S D / arrows / screen edge to pan, mouse wheel to zoom, Q and E to rotate, middle-drag to pan. Click the minimap to jump.</p>
+    <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · Esc cancel/deselect · H help · M sound.</p>
+    <p><b>Touch:</b> tap to select, drag to pan, pinch to zoom, long-press to order.</p>
+    <button id="help-close">Close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>/*__SIM__*/</script>
+<script>/*__RENDER__*/</script>
+<script>/*__INPUT__*/</script>
+<script>/*__UI__*/</script>
+<script>/*__MAIN__*/</script>
+</body>
+</html>

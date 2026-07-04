@@ -140,5 +140,52 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
   ok(st.scores.some(sc=>sc.res>500), 'score tracking accumulates gathered resources');
 }
 
+// ---------- Test 6: economy sprint — camps, chaining, auto-gather ----------
+{
+  const st = Sim.newGame(31337);
+  const vills = st.units.filter(u=>u.owner===0&&u.ut==='villager').map(u=>u.id);
+  // auto-gather: one command, everyone works wood
+  Sim.cmdAutoGather(vills,'wood');
+  run(3);
+  const busy = vills.filter(id=>{const u=Sim.ent(id);return u&&(u.state==='toRes'||u.state==='gather');}).length;
+  ok(busy>=3, 'cmdAutoGather put villagers to work ('+busy+'/4)');
+  // builder chain: queue two adjacent houses with ONE villager, no follow-up order
+  st.players[0].wood=500;
+  const v=vills[0];
+  const u=Sim.ent(v);
+  let spot=null;
+  outer: for(let r=3;r<15;r++) for(let a=0;a<24;a++){
+    const x=(u.x+Math.cos(a/24*6.28)*r)|0, y=(u.y+Math.sin(a/24*6.28)*r)|0;
+    if(Sim.canPlace('house',x,y)&&Sim.canPlace('house',x+3,y)){spot={x,y};break outer;}
+  }
+  ok(!!spot,'found spot for chained houses');
+  const b1=Sim.cmdBuildPlace([v],'house',spot.x,spot.y);
+  const b2=Sim.cmdBuildPlace([v],'house',spot.x+3,spot.y); // second order overrides; chain must bring him back to b1
+  run(90);
+  ok(b1&&b2&&b1.done&&b2.done, 'one villager chained both constructions without re-orders (b1 '+(b1&&b1.done)+', b2 '+(b2&&b2.done)+')');
+  // camp drop-off: place a lumber camp near his trees, verify deposits use it
+  const st2 = Sim.newGame(777);
+  const p0=st2.players[0]; p0.wood=500;
+  const tc=st2.bldgs.find(b=>b.owner===0&&b.bt==='towncenter');
+  let tree=null,bd=1e9;
+  for(let y=0;y<Sim.S;y++)for(let x=0;x<Sim.S;x++)
+    if(st2.tiles[y*Sim.S+x]===Sim.TREE){const d=Math.hypot(x-tc.x,y-tc.y);if(d<bd){bd=d;tree={x,y};}}
+  let cspot=null;
+  outer2: for(let r=2;r<8;r++) for(let a=0;a<24;a++){
+    const x=(tree.x+Math.cos(a/24*6.28)*r)|0, y=(tree.y+Math.sin(a/24*6.28)*r)|0;
+    if(Sim.canPlace('lumbercamp',x,y)){cspot={x,y};break outer2;}
+  }
+  const ids2=st2.units.filter(u2=>u2.owner===0&&u2.ut==='villager').map(u2=>u2.id);
+  const camp=Sim.cmdBuildPlace(ids2,'lumbercamp',cspot.x,cspot.y);
+  run(40);
+  ok(camp&&camp.done,'lumber camp constructed');
+  Sim.cmdAutoGather(ids2,'wood');
+  const w0=p0.wood;
+  run(45);
+  ok(p0.wood-w0>40, 'camp-based gathering income healthy (+'+((p0.wood-w0)|0)+' wood in 45s with 4 villagers)');
+  const CFGx=require('./src/config.js');
+  ok(CFGx.UNITS.villager.hp===32&&CFGx.BLDGS.lumbercamp.drop[0]==='wood', 'config file loads with expected defaults');
+}
+
 console.log(fails===0 ? '\nALL TESTS PASSED' : '\n'+fails+' TEST(S) FAILED');
 process.exit(fails===0?0:1);

@@ -18,6 +18,7 @@ function setSelection(ids){
   if(selection.length) clearResSel();
   Render.setSelection(selection);
   UI.onSelection(selection);
+  updateRallyMarker();
   if(selection.length) Sfx.play('select');
 }
 function clearResSel(){ if(selRes){selRes=null;Render.ringTile(null);UI.showResource(null);} }
@@ -47,9 +48,26 @@ function updateGhost(){
 }
 
 // ---------- orders ----------
+function updateRallyMarker(){
+  const own=selection.map(id=>Sim.ent(id)).filter(e=>e&&e.kind==='bldg'&&e.owner===0&&e.done&&Sim.BLDGS[e.bt].trains);
+  if(own.length===1&&own[0].rally) Render.showRally(own[0].rally.x,own[0].rally.y);
+  else Render.hideRally();
+}
 function smartOrder(nx,ny){
   const ids=mySelectedUnits();
-  if(!ids.length) return;
+  if(!ids.length){
+    // building(s) selected: right-click sets the rally point
+    const blds=selection.map(id=>Sim.ent(id)).filter(e=>e&&e.kind==='bldg'&&e.owner===0&&Sim.BLDGS[e.bt].trains);
+    if(blds.length){
+      const g=Render.screenToGround(nx,ny);
+      if(g){
+        for(const b of blds) Sim.cmdRally(b.id,g.x,g.y);
+        Sfx.play('order'); updateRallyMarker();
+        UI.toast('Rally point set'+(Sim.resAt(g.x|0,g.y|0)?' — new villagers will gather here':''));
+      }
+    }
+    return;
+  }
   const eid=Render.pickEntity(nx,ny);
   if(eid){
     const e=Sim.ent(eid);

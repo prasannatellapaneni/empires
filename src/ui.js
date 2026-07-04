@@ -40,7 +40,7 @@ const RES_ICONS={
   gold:'<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5" fill="#d9a520"/><circle cx="10" cy="10" r="4.5" fill="#f0c94a"/></svg>',
   pop:'<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3.4" fill="#cfd6dd"/><path d="M3 17 q7 -8 14 0 z" fill="#cfd6dd"/></svg>',
 };
-const BUILD_MENU=['house','farm','barracks','archery','stable','workshop','tower'];
+const BUILD_MENU=['house','farm','mill','lumbercamp','miningcamp','barracks','archery','stable','workshop','tower'];
 const PNAMES=['You','Red','Green','Yellow'];
 const PCOLORS=['#4d8bf0','#e05242','#4fb75a','#e0b84d'];
 const PCOLORS_U=['#8fc1ff','#ff8d7a','#8fe09a','#ffe08f'];
@@ -215,6 +215,11 @@ function buildCard(ids,first){
         ()=>Input.startPlace(bt), locked||!afford,
         locked?'Requires '+Sim.AGES[d.age]:'');
     }
+  }
+  if(vills.length){
+    for(const k of ['wood','food','gold'])
+      btn('Gather '+k[0].toUpperCase()+k.slice(1),'auto-assign',
+        ()=>{ Sim.cmdAutoGather(vills,k); Sfx.play('order'); },false);
   }
   if(units.length){ btn('Stop','S',()=>Sim.cmdStop(units),false); }
   if(ids.length===1&&first.kind==='bldg'&&first.done){

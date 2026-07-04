@@ -3,6 +3,7 @@ const read=f=>fs.readFileSync('src/'+f,'utf8');
 let html=read('shell.html');
 const put=(tag,content)=>{ html=html.replace('/*__'+tag+'__*/',()=>content); };
 put('CSS',read('style.css'));
+put('CONFIG',read('config.js'));
 put('SIM',read('sim.js'));
 put('RENDER',read('render.js'));
 put('INPUT',read('input.js'));

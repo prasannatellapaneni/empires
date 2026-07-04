@@ -22,38 +22,12 @@ function fbm(n,x,y,oct){let s=0,a=1,f=1,t=0;for(let i=0;i<oct;i++){s+=n(x*f,y*f)
 // ---------- constants ----------
 let S = 96;                         // map size in tiles (set per game)
 const GRASS=0, TREE=1, BERRY=2, GOLD=3;
-const AGES = ['Dark Age','Feudal Age','Castle Age','Imperial Age'];
-const AGE_COST = [null,{food:400,gold:150},{food:700,gold:350},{food:1100,gold:650}];
-const AGE_TIME = [0,40,55,70];
-const POP_MAX = 60;
-
-const UNITS = {
-  villager:  {name:'Villager', hp:32, atk:3,  range:0.2, rof:1.5, speed:2.7, sight:5, cost:{food:60},          time:9,  pop:1, age:0, radius:0.27, bld:'towncenter'},
-  swordsman: {name:'Swordsman',hp:64, atk:8,  range:0.2, rof:1.3, speed:2.8, sight:6, cost:{food:60,gold:25},  time:10, pop:1, age:0, radius:0.29, bld:'barracks', bonusBld:1.6},
-  archer:    {name:'Archer',   hp:34, atk:6,  range:5.5, rof:1.7, speed:2.9, sight:7, cost:{wood:35,gold:40},  time:10, pop:1, age:1, radius:0.27, bld:'archery',  proj:11},
-  knight:    {name:'Knight',   hp:120,atk:12, range:0.3, rof:1.4, speed:3.9, sight:6, cost:{food:70,gold:70},  time:14, pop:1, age:2, radius:0.34, bld:'stable'},
-  warcow:    {name:'War Cow',  hp:220,atk:26, range:0.3, rof:0.9, speed:5.2, sight:7, cost:{},                time:1,  pop:0, age:0, radius:0.36, bld:null},
-  catapult:  {name:'Catapult', hp:65, atk:32, range:7,   rof:4.5, speed:1.7, sight:7, cost:{wood:140,gold:120},time:20, pop:1, age:3, radius:0.42, bld:'workshop', proj:7, splash:1.3, bonusBld:3},
-};
-const BLDGS = {
-  towncenter:{name:'Town Center', size:3, hp:650, cost:{},                 work:0,  age:0, sight:9, pop:10, atk:6, range:6.5, rof:2, drop:true, trains:['villager']},
-  house:     {name:'House',       size:2, hp:170, cost:{wood:50},          work:16, age:0, sight:3, pop:5},
-  farm:      {name:'Farm',        size:2, hp:90,  cost:{wood:60},          work:12, age:0, sight:2, farm:true},
-  barracks:  {name:'Barracks',    size:3, hp:380, cost:{wood:150},         work:28, age:0, sight:5, trains:['swordsman']},
-  archery:   {name:'Archery Range',size:3,hp:330, cost:{wood:160},         work:28, age:1, sight:5, trains:['archer']},
-  stable:    {name:'Stable',      size:3, hp:380, cost:{wood:160},         work:28, age:2, sight:5, trains:['knight']},
-  workshop:  {name:'Siege Workshop',size:3,hp:330,cost:{wood:200,gold:80}, work:32, age:3, sight:5, trains:['catapult']},
-  tower:     {name:'Watch Tower', size:2, hp:300, cost:{wood:80,gold:80},  work:26, age:1, sight:9, atk:8, range:7.5, rof:2},
-};
-const DIFFS = {
-  easiest:{vt:[8,10,12,14],  first:480, wave0:4, waveInc:2, waveCap:10, lazy:true,  multiProd:false, bonus:0,   cap:true},
-  easy:   {vt:[10,14,18,20], first:380, wave0:5, waveInc:3, waveCap:14, lazy:false, multiProd:false, bonus:0,   cap:true},
-  normal: {vt:[13,18,24,28], first:300, wave0:6, waveInc:4, waveCap:24, lazy:false, multiProd:true,  bonus:0,   cap:false},
-  hard:   {vt:[14,20,26,30], first:240, wave0:8, waveInc:5, waveCap:30, lazy:false, multiProd:true,  bonus:150, cap:false},
-};
-const RES_AMT = {[TREE]:120,[BERRY]:150,[GOLD]:500};
-const RES_KIND = {[TREE]:'wood',[BERRY]:'food',[GOLD]:'gold'};
-const GATHER_RATE = 0.9, FARM_RATE = 0.75, CARRY = 10;
+const CFG = (typeof CONFIG!=='undefined') ? CONFIG : require('./config.js');
+const AGES=CFG.AGES, AGE_COST=CFG.AGE_COST, AGE_TIME=CFG.AGE_TIME, POP_MAX=CFG.POP_MAX;
+const UNITS=CFG.UNITS, BLDGS=CFG.BLDGS, DIFFS=CFG.DIFFS;
+const RES_AMT={[TREE]:CFG.RES.tree,[BERRY]:CFG.RES.berry,[GOLD]:CFG.RES.gold};
+const RES_KIND={[TREE]:'wood',[BERRY]:'food',[GOLD]:'gold'};
+const GATHER_RATE=CFG.ECON.gatherRate, FARM_RATE=CFG.ECON.farmRate, CARRY=CFG.ECON.carry;
 
 // ---------- state ----------
 let st = null;
@@ -64,7 +38,7 @@ function newGame(seed, opts){
   opts = opts||{};
   const diff = DIFFS[opts.difficulty]||DIFFS.normal;
   const nOpp = Math.min(3,Math.max(1,opts.opponents||1));
-  S = nOpp>=2 ? 120 : 96;
+  S = nOpp>=2 ? CFG.MAP.ffaSize : CFG.MAP.soloSize;
   if(_g.length!==S*S){ _g=new Float32Array(S*S); _ver=new Int32Array(S*S); _par=new Int32Array(S*S); _curVer=0; }
   const rand = mulberry32(seed|0);
   st = {
@@ -237,7 +211,7 @@ function goalNear(tx,ty,r){return (x,y)=>Math.hypot(x+0.5-tx,y+0.5-ty)<=r;}
 // ---------- entities ----------
 function spawnUnit(owner,ut,x,y){
   const d=UNITS[ut], p=st.players[owner];
-  const mul = ut==='villager'?1:(1+0.08*p.age);
+  const mul = ut==='villager'?1:(1+CFG.ECON.ageBonus*p.age);
   const u={id:st.nextId++, kind:'unit', owner, ut, x, y, dir:0,
     hp:Math.round(d.hp*mul), maxhp:Math.round(d.hp*mul), atk:d.atk*mul,
     state:'idle', path:null, pi:0, tgtId:0, resTile:null, farmId:0, buildId:0,
@@ -421,6 +395,17 @@ function cmdAge(bid){
   b.queue.unshift({age:true,tLeft:AGE_TIME[p.age+1],tFull:AGE_TIME[p.age+1]});
   return true;
 }
+function cmdRally(bid,x,y){
+  const b=ent(bid); if(!b||b.dead||b.kind!=='bldg') return false;
+  b.rally={x,y}; return true;
+}
+function cmdAutoGather(ids,kind){
+  for(const id of ids){
+    const u=ent(id); if(!u||u.dead||u.ut!=='villager') continue;
+    stopUnit(u); u.gatherKind=kind; retarget(u);
+  }
+  st.events.push({t:'order',x:0,y:0});
+}
 function cmdStop(ids){ for(const id of ids){const u=ent(id); if(u&&!u.dead&&u.kind==='unit') stopUnit(u);} }
 
 // ---------- damage / death ----------
@@ -553,9 +538,11 @@ function tickAttack(u,dt){
   moveAlong(u,dt);
 }
 function nearestDrop(u){
+  const kind=u.carryType||u.gatherKind;
   let best=null,bd=1e9;
   for(const b of st.bldgs){
-    if(b.dead||!b.done||b.owner!==u.owner||!BLDGS[b.bt].drop) continue;
+    const dr=BLDGS[b.bt].drop;
+    if(b.dead||!b.done||b.owner!==u.owner||!dr||(kind&&!dr.includes(kind))) continue;
     const d=distRect(u.x,u.y,b);
     if(d<bd){bd=d;best=b;}
   }
@@ -660,6 +647,14 @@ function afterBuild(u,b){
     u.farmId=b.id; b.farmClaims++; u.gatherKind='food'; u.state='toRes';
     u.path=findPath(u.x,u.y,goalAdjRect(b),b.x,b.y); u.pi=0; return;
   }
+  // chain: help any other construction site nearby before resuming
+  let nb=null,bd=CFG.ECON.buildChainRadius;
+  for(const c of st.bldgs){
+    if(c.dead||c.done||c.owner!==u.owner) continue;
+    const d=distRect(u.x,u.y,c);
+    if(d<bd){bd=d;nb=c;}
+  }
+  if(nb){ cmdBuildTarget([u.id],nb.id); return; }
   if(u.gatherKind){ retarget(u); return; }
   u.state='idle';
 }
@@ -724,7 +719,7 @@ function tickBldg(b,dt){
   if(!b.done){
     if(b.builders>0){
       const n=Math.min(3,b.builders);
-      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75))*((st.warp&&b.owner===0)?20:1);
+      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75))*((st.warp&&b.owner===0)?CFG.CHEATS.warpMult:1);
       b.hp=Math.min(b.maxhp,Math.max(1,b.workDone/b.workNeed*b.maxhp));
       if(b.workDone>=b.workNeed){
         b.done=true; b.hp=b.maxhp;
@@ -739,7 +734,7 @@ function tickBldg(b,dt){
   // training / research
   if(b.queue.length){
     const q=b.queue[0];
-    q.tLeft-=dt*((st.warp&&b.owner===0)?20:1);
+    q.tLeft-=dt*((st.warp&&b.owner===0)?CFG.CHEATS.warpMult:1);
     if(q.tLeft<=0){
       b.queue.shift();
       if(q.age){
@@ -749,7 +744,9 @@ function tickBldg(b,dt){
         const sp=spawnPoint(b);
         const u=spawnUnit(b.owner,q.ut,sp.x,sp.y);
         if(b.rally){ if(q.ut==='villager'){ const gx=b.rally.x|0, gy=b.rally.y|0;
+            const oid=inB(gx,gy)?st.occ[idx(gx,gy)]:0, fb=oid?ent(oid):null;
             if(inB(gx,gy)&&st.tiles[idx(gx,gy)]!==GRASS&&st.res[idx(gx,gy)]>0) cmdGatherTile([u.id],gx,gy);
+            else if(fb&&!fb.dead&&fb.done&&fb.owner===b.owner&&BLDGS[fb.bt].farm) cmdGatherFarm([u.id],fb.id);
             else cmdMove([u.id],b.rally.x,b.rally.y); }
           else cmdMove([u.id],b.rally.x,b.rally.y); }
       }
@@ -895,7 +892,7 @@ function aiTick(pi){
   }
   // --- farms ---
   const berriesLeft=countResNear(tc,BERRY,15);
-  const farmMax=3+p.age*2;
+  const farmMax=CFG.AI.farmBase+p.age*CFG.AI.farmPerAge;
   if(berriesLeft<3 && count('farm')<farmMax && !building('farm') && p.wood>=80) aiBuild(pi,'farm',tc,vills);
 
   // --- gatherer rebalancing (truthful labels + mismatch healing) ---
@@ -924,6 +921,22 @@ function aiTick(pi){
     }
   }
 
+  // --- drop-off camps near working clusters ---
+  if(!p.ai.saving){
+    for(const [kind,bt] of [['wood','lumbercamp'],['food','mill'],['gold','miningcamp']]){
+      const w=workers[kind];
+      if(!w||w.length<CFG.AI.campMinWorkers) continue;
+      if(count(bt)>=CFG.AI.campMaxPerKind||building(bt)) continue;
+      let cx=0,cy=0,n=0;
+      for(const v of w) if(v.resTile){cx+=v.resTile.x;cy+=v.resTile.y;n++;}
+      if(n<3) continue;
+      cx/=n; cy/=n;
+      let dmin=1e9;
+      for(const b of my){ const dr=BLDGS[b.bt].drop;
+        if(b.done&&dr&&dr.includes(kind)) dmin=Math.min(dmin,Math.hypot(b.x-cx,b.y-cy)); }
+      if(dmin>CFG.AI.campDistance) aiBuildAt(pi,bt,cx|0,cy|0,vills);
+    }
+  }
   // --- military training ---
   if(!p.ai.saving && !(prof.lazy && ((st.time|0)%2===1))){
     for(const b of my){
@@ -933,13 +946,13 @@ function aiTick(pi){
     }
   }
   // rally military buildings to a muster point between tc and map center
-  const mx=tc.x+(S/2-tc.x)*0.25, my2=tc.y+(S/2-tc.y)*0.25;
+  const mx=tc.x+(S/2-tc.x)*CFG.AI.musterFraction, my2=tc.y+(S/2-tc.y)*CFG.AI.musterFraction;
   for(const b of my) if(BLDGS[b.bt].trains&&b.bt!=='towncenter') b.rally={x:mx,y:my2};
 
   // --- defense ---
   const hurt=my.find(b=>st.time-b.lastHit<12);
   if(hurt){
-    let foe=null,bd=16;
+    let foe=null,bd=CFG.AI.defendRadius;
     for(const u of st.units){ if(u.dead||u.owner===pi) continue;
       const dd=Math.hypot(u.x-hurt.x,u.y-hurt.y); if(dd<bd){bd=dd;foe=u;} }
     if(foe){ const def=army.filter(a=>a.state==='idle'||(a.state==='move'&&!a.aMove));
@@ -954,7 +967,7 @@ function aiTick(pi){
       const tgt=foeB[0];
       cmdAttack(army.map(a=>a.id),tgt.id);
       p.ai.wave=Math.min(prof.waveCap,p.ai.wave+prof.waveInc);
-      p.ai.atkCool=90;
+      p.ai.atkCool=CFG.AI.attackCooldown;
       st.events.push({t:'aiattack',pi});
     }
   }
@@ -975,10 +988,11 @@ function assignGather(v,kind,tc){
   else cmdGatherTile([v.id],r.tile.x,r.tile.y);
   return true;
 }
-function aiBuild(pi,bt,tc,vills){
+function aiBuild(pi,bt,tc,vills){ return aiBuildAt(pi,bt,tc.x|0,tc.y|0,vills); }
+function aiBuildAt(pi,bt,cx,cy,vills){
   const p=st.players[pi], d=BLDGS[bt];
   if(p.age<d.age||!canAfford(pi,d.cost)) return false;
-  const spot=findSpot(bt,tc.x|0,tc.y|0);
+  const spot=findSpot(bt,cx,cy);
   if(!spot) return false;
   // pick a close villager, prefer idle
   let v=null,bd=1e9;
@@ -1049,7 +1063,7 @@ function idleVillagers(pi){
   for(const u of st.units) if(!u.dead&&u.owner===pi&&u.ut==='villager'&&u.state==='idle') out.push(u.id);
   return out;
 }
-function cheatMoney(pi){ const p=st.players[pi]; p.wood+=10000;p.food+=10000;p.gold+=10000; st.cheated=true; }
+function cheatMoney(pi){ const p=st.players[pi]; p.wood+=CFG.CHEATS.money;p.food+=CFG.CHEATS.money;p.gold+=CFG.CHEATS.money; st.cheated=true; }
 function cheatReveal(){ const v=st.vis[0]; for(let i=0;i<v.length;i++) if(v[i]===0)v[i]=1; st.cheated=true; }
 function cheatWarp(){ st.warp=!st.warp; st.cheated=true; return st.warp; }
 function cheatGod(ids){ let on=false;
@@ -1058,7 +1072,7 @@ function cheatGod(ids){ let on=false;
 function cheatMoo(pi){
   const tc=st.bldgs.find(b=>!b.dead&&b.owner===pi&&b.bt==='towncenter');
   const at=tc?{x:tc.x,y:tc.gy+tc.size+1}:{x:S/2,y:S/2};
-  for(let i=0;i<3;i++) spawnUnit(pi,'warcow',Math.min(S-1,at.x+i*0.9-0.9),Math.min(S-1,at.y));
+  for(let i=0;i<CFG.CHEATS.mooCount;i++) spawnUnit(pi,'warcow',Math.min(S-1,at.x+i*0.9-0.9),Math.min(S-1,at.y));
   st.cheated=true;
 }
 return {
@@ -1066,7 +1080,7 @@ return {
   resAt, idleVillagers, cheatMoney, cheatReveal, cheatWarp, cheatGod, cheatMoo,
   get st(){return st;},
   cmdMove, cmdAttack, cmdGatherTile, cmdGatherFarm, cmdBuildPlace, cmdBuildTarget,
-  cmdTrain, cmdAge, cmdStop, canPlace, canAfford, countPop, ent,
+  cmdTrain, cmdAge, cmdStop, cmdRally, cmdAutoGather, canPlace, canAfford, countPop, ent,
   UNITS, BLDGS, AGES, AGE_COST, get S(){return S;}, GRASS, TREE, BERRY, GOLD,
   distRect,
 };

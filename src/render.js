@@ -350,6 +350,23 @@ function makeBldgMesh(b){
     const wheel=add(new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.08,12),MATS.wood));
     wheel.rotation.z=Math.PI/2; wheel.position.set(1.4,0.5,0.6);
     g.add(flagPole(o,2.8));
+  } else if(b.bt==='mill'){
+    const base=add(new THREE.Mesh(new THREE.BoxGeometry(1.7,0.9,1.5),MATS.plank)); base.position.y=0.45;
+    const roof=add(gable(1.85,1.6,MATS.thatch)); roof.position.y=1.2;
+    const wheel=add(new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.07,10),MATS.wood));
+    wheel.rotation.x=Math.PI/2; wheel.position.set(0,1.15,0.85);
+    for(let i=0;i<4;i++){ const sail=add(new THREE.Mesh(new THREE.BoxGeometry(0.1,0.42,0.02),MATS.thatch));
+      const a=i*Math.PI/2; sail.position.set(Math.cos(a)*0.34,1.15+Math.sin(a)*0.34,0.9); sail.rotation.z=a; }
+  } else if(b.bt==='lumbercamp'){
+    const base=add(new THREE.Mesh(new THREE.BoxGeometry(1.6,0.8,1.3),MATS.plank)); base.position.y=0.4; base.position.x=-0.25;
+    const roof=add(gable(1.75,1.4,MATS.plank)); roof.position.y=1.05; roof.position.x=-0.25;
+    for(let i=0;i<3;i++){ const log=add(new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,1.1,7),MATS.bark));
+      log.rotation.z=Math.PI/2; log.position.set(0.75,0.12+i*0.2,i%2?0.25:-0.05); }
+  } else if(b.bt==='miningcamp'){
+    const base=add(new THREE.Mesh(new THREE.BoxGeometry(1.6,0.85,1.3),MATS.stone)); base.position.y=0.42; base.position.x=-0.2;
+    const roof=add(gable(1.75,1.4,MATS.plank)); roof.position.y=1.1; roof.position.x=-0.2;
+    const pile=add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.32,0),MATS.gold)); pile.position.set(0.75,0.25,0.3);
+    const pile2=add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.24,0),MATS.gold)); pile2.position.set(0.7,0.2,-0.35);
   } else if(b.bt==='tower'){
     const base=add(new THREE.Mesh(new THREE.CylinderGeometry(0.72,0.86,2.7,9),MATS.stone)); base.position.y=1.35;
     const top=add(new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.4,9),MATS.stone)); top.position.y=2.9;
@@ -533,6 +550,24 @@ function updateRings(){
     m.position.set(e.x,hAt(e.x,e.y)+0.08,e.y);
   }
 }
+let rallyMarker=null;
+function showRally(x,y){
+  if(!rallyMarker){
+    rallyMarker=new THREE.Group();
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,1.1,5),MATS.wood);
+    pole.position.y=0.55; rallyMarker.add(pole);
+    const flag=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.3),
+      new THREE.MeshBasicMaterial({color:TEAM[0],side:THREE.DoubleSide}));
+    flag.position.set(0.26,0.92,0); rallyMarker.add(flag);
+    const ring=new THREE.Mesh(new THREE.RingGeometry(0.3,0.4,18),
+      new THREE.MeshBasicMaterial({color:TEAM[0],side:THREE.DoubleSide,transparent:true,opacity:0.8,depthWrite:false}));
+    ring.rotation.x=-Math.PI/2; ring.position.y=0.06; rallyMarker.add(ring);
+    scene.add(rallyMarker);
+  }
+  rallyMarker.visible=true;
+  rallyMarker.position.set(x,hAt(x,y),y);
+}
+function hideRally(){ if(rallyMarker) rallyMarker.visible=false; }
 let tileRing=null;
 function ringTile(gx,gy){
   if(tileRing){scene.remove(tileRing);tileRing=null;}
@@ -658,7 +693,7 @@ function update(dt){
 }
 
 return { init, update, onEvent, pan, applyCam, cam, screenToGround, pickEntity, worldToScreen,
-         setSelection, showGhost, hideGhost, ringTile, hAt, TEAM,
+         setSelection, showGhost, hideGhost, ringTile, showRally, hideRally, hAt, TEAM,
          zoom(d){cam.dist*=d;applyCam();}, rotate(d){cam.yaw+=d;applyCam();},
          center(x,y){cam.tx=x;cam.tz=y;applyCam();} };
 })();

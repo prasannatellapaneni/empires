@@ -161,6 +161,7 @@ function init(container){
     if(UI.chatOpen){ if(e.key==='Escape')UI.closeChat(); return; }
     if(e.key==='Enter'){ UI.openChat(); e.preventDefault(); return; }
     keys[e.key.toLowerCase()]=true;
+    if(e.key==='Tab'){ e.preventDefault(); UI.showScore(true); return; }
     const digitCode=(e.code&&(e.code.startsWith('Digit')||e.code.startsWith('Numpad')))?e.code.replace('Digit','').replace('Numpad',''):null;
     if(digitCode>='1'&&digitCode<='9'){
       const d=digitCode;
@@ -191,7 +192,10 @@ function init(container){
       if(ids.length) setSelection(ids);
     }
   });
-  window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+  window.addEventListener('keyup',e=>{
+    keys[e.key.toLowerCase()]=false;
+    if(e.key==='Tab') UI.showScore(false);
+  });
   // touch
   let touches=new Map(), lastPinch=0, touchMoved=false, longT=null;
   dom.addEventListener('touchstart',e=>{

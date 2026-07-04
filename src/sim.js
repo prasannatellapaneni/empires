@@ -20,7 +20,7 @@ function makeNoise(seed){
 function fbm(n,x,y,oct){let s=0,a=1,f=1,t=0;for(let i=0;i<oct;i++){s+=n(x*f,y*f)*a;t+=a;a*=0.5;f*=2;}return s/t;}
 
 // ---------- constants ----------
-const S = 96;                       // map size in tiles
+let S = 96;                         // map size in tiles (set per game)
 const GRASS=0, TREE=1, BERRY=2, GOLD=3;
 const AGES = ['Dark Age','Feudal Age','Castle Age','Imperial Age'];
 const AGE_COST = [null,{food:400,gold:150},{food:700,gold:350},{food:1100,gold:650}];
@@ -45,6 +45,12 @@ const BLDGS = {
   workshop:  {name:'Siege Workshop',size:3,hp:330,cost:{wood:200,gold:80}, work:32, age:3, sight:5, trains:['catapult']},
   tower:     {name:'Watch Tower', size:2, hp:300, cost:{wood:80,gold:80},  work:26, age:1, sight:9, atk:8, range:7.5, rof:2},
 };
+const DIFFS = {
+  easiest:{vt:[8,10,12,14],  first:480, wave0:4, waveInc:2, waveCap:10, lazy:true,  multiProd:false, bonus:0,   cap:true},
+  easy:   {vt:[10,14,18,20], first:380, wave0:5, waveInc:3, waveCap:14, lazy:false, multiProd:false, bonus:0,   cap:true},
+  normal: {vt:[13,18,24,28], first:300, wave0:6, waveInc:4, waveCap:24, lazy:false, multiProd:true,  bonus:0,   cap:false},
+  hard:   {vt:[14,20,26,30], first:240, wave0:8, waveInc:5, waveCap:30, lazy:false, multiProd:true,  bonus:150, cap:false},
+};
 const RES_AMT = {[TREE]:120,[BERRY]:150,[GOLD]:500};
 const RES_KIND = {[TREE]:'wood',[BERRY]:'food',[GOLD]:'gold'};
 const GATHER_RATE = 0.9, FARM_RATE = 0.75, CARRY = 10;
@@ -56,25 +62,34 @@ const inB=(x,y)=>x>=0&&y>=0&&x<S&&y<S;
 
 function newGame(seed, opts){
   opts = opts||{};
+  const diff = DIFFS[opts.difficulty]||DIFFS.normal;
+  const nOpp = Math.min(3,Math.max(1,opts.opponents||1));
+  S = nOpp>=2 ? 120 : 96;
+  if(_g.length!==S*S){ _g=new Float32Array(S*S); _ver=new Int32Array(S*S); _par=new Int32Array(S*S); _curVer=0; }
   const rand = mulberry32(seed|0);
   st = {
     seed:seed|0, size:S, time:0, over:false, winner:-1,
     tiles:new Uint8Array(S*S), res:new Float32Array(S*S), occ:new Int32Array(S*S),
     height:new Float32Array((S+1)*(S+1)),
     units:[], bldgs:[], proj:[], byId:new Map(), nextId:1,
-    players:[mkPlayer(false),mkPlayer(true)],
-    vis:[new Uint8Array(S*S), new Uint8Array(S*S)],
+    players:[mkPlayer(false)].concat(Array.from({length:nOpp},()=>mkPlayer(true))),
+    vis:[new Uint8Array(S*S)],
     claims:new Map(), events:[], visT:0, aiT:0, sepT:0,
-    warp:false, cheated:false, ageCap:opts.ageCap!==false,
-    rand,
+    warp:false, cheated:false, ageCap:diff.cap, difficulty:opts.difficulty||'normal',
+    scores:null, rand,
   };
+  st.scores = st.players.map(()=>({kills:0,losses:0,razings:0,res:0,built:0}));
   if (opts.p0ai) st.players[0].isAI = true;
+  for(const p of st.players) if(p.isAI){
+    p.ai.prof=diff; p.ai.wave=diff.wave0; p.ai.nextAtk=diff.first;
+    p.wood+=diff.bonus; p.food+=diff.bonus; p.gold+=diff.bonus;
+  }
   genMap(rand);
   return st;
 }
 function mkPlayer(isAI){
-  return {wood:200, food:200, gold:100, age:0, popUsed:0, popCap:0, isAI,
-          ai:{saving:false, wave:6, nextAtk:300, atkCool:0, lastReassign:0}};
+  return {wood:200, food:200, gold:100, age:0, popUsed:0, popCap:0, isAI, eliminated:false,
+          ai:{saving:false, wave:6, nextAtk:300, atkCool:0, lastReassign:0, prof:DIFFS.normal}};
 }
 
 // ---------- map generation ----------
@@ -83,7 +98,8 @@ function genMap(rand){
   // heights (render-only)
   for (let y=0;y<=S;y++) for (let x=0;x<=S;x++)
     st.height[y*(S+1)+x] = (fbm(nH,x*0.045,y*0.045,4)-0.5)*3.4;
-  const starts = [{x:15,y:15},{x:S-16,y:S-16}];
+  const corners = [{x:15,y:15},{x:S-16,y:S-16},{x:S-16,y:15},{x:15,y:S-16}];
+  const starts = corners.slice(0,st.players.length);
   // flatten around starts
   for (const s of starts) for (let y=0;y<=S;y++) for (let x=0;x<=S;x++){
     const d=Math.hypot(x-s.x,y-s.y);
@@ -96,8 +112,8 @@ function genMap(rand){
     if (f>0.62 && dMin>7) setRes(x,y,TREE);
   }
   // scattered berry patches + gold mid-map
-  scatterCluster(rand, S/2|0, S/2|0, 18, GOLD, 6);
-  scatterCluster(rand, S/2|0, S/2|0, 22, BERRY, 8);
+  scatterCluster(rand, S/2|0, S/2|0, (S*0.19)|0, GOLD, Math.round(6*S/96));
+  scatterCluster(rand, S/2|0, S/2|0, (S*0.23)|0, BERRY, Math.round(8*S/96));
   // guarantee resources near each start (verification pass)
   for (const s of starts){
     ensureNear(rand, s, TREE, 34, 16);
@@ -105,7 +121,7 @@ function genMap(rand){
     ensureNear(rand, s, GOLD, 10, 15);
   }
   // town centers + villagers
-  for (let p=0;p<2;p++){
+  for (let p=0;p<starts.length;p++){
     const s = starts[p];
     clearRect(s.x-1,s.y-1,5);
     const tc = addBldg(p, 'towncenter', s.x-1, s.y-1, true);
@@ -169,7 +185,7 @@ function closestOnRect(px,py,b){
 }
 
 // ---------- A* pathfinding ----------
-const _g=new Float32Array(S*S), _ver=new Int32Array(S*S), _par=new Int32Array(S*S);
+let _g=new Float32Array(S*S), _ver=new Int32Array(S*S), _par=new Int32Array(S*S);
 let _curVer=0;
 const _heap=[]; // [f, idx]
 function hPush(f,i){_heap.push([f,i]);let c=_heap.length-1;while(c>0){const p=(c-1)>>1;if(_heap[p][0]<=_heap[c][0])break;const t=_heap[p];_heap[p]=_heap[c];_heap[c]=t;c=p;}}
@@ -413,9 +429,16 @@ function dmgMul(att,target){
   if(target.kind==='bldg'&&d&&d.bonusBld) return d.bonusBld;
   return 1;
 }
-function applyDamage(target,dmg,attacker){
+function applyDamage(target,dmg,attacker,kpi){
   if(target.dead||target.god) return;
   target.hp-=dmg;
+  if(target.hp<=0){
+    const killer = kpi!==undefined&&kpi>=0 ? kpi : (attacker?attacker.owner:-1);
+    if(killer>=0&&killer!==target.owner&&st.scores){
+      if(target.kind==='unit'){ st.scores[killer].kills++; st.scores[target.owner].losses++; }
+      else st.scores[killer].razings++;
+    }
+  }
   st.events.push({t:'hit',id:target.id,x:target.x,y:target.y});
   if(target.kind==='bldg') target.lastHit=st.time;
   // retaliation / flee
@@ -440,10 +463,28 @@ function kill(e){
     for(let y=e.gy;y<e.gy+e.size;y++)for(let x=e.gx;x<e.gx+e.size;x++)
       if(st.occ[idx(x,y)]===e.id) st.occ[idx(x,y)]=0;
     recalcPop(e.owner);
-    if(e.bt==='towncenter'&&!st.over){
-      st.over=true; st.winner=1-e.owner;
-      st.events.push({t:'gameover',winner:st.winner});
-    }
+    if(e.bt==='towncenter') eliminate(e.owner);
+  }
+}
+function eliminate(pi){
+  const p=st.players[pi];
+  if(p.eliminated) return;
+  p.eliminated=true;
+  st.events.push({t:'eliminated',pi});
+  for(const u of st.units) if(!u.dead&&u.owner===pi) kill(u);
+  for(const b of st.bldgs) if(!b.dead&&b.owner===pi) kill(b);
+  checkEnd();
+}
+function checkEnd(){
+  if(st.over) return;
+  const alive=[];
+  for(let i=0;i<st.players.length;i++) if(!st.players[i].eliminated) alive.push(i);
+  if(st.players[0].eliminated){
+    st.over=true; st.winner=alive.length===1?alive[0]:-1;
+    st.events.push({t:'gameover',winner:st.winner});
+  } else if(alive.length===1){
+    st.over=true; st.winner=alive[0];
+    st.events.push({t:'gameover',winner:st.winner});
   }
 }
 
@@ -564,7 +605,9 @@ function tickVillager(u,dt){
       if(!b||b.dead){ const d2=nearestDrop(u); if(!d2){u.state='idle';return;} u.dropId=d2.id;
         u.path=findPath(u.x,u.y,goalAdjRect(d2),d2.x,d2.y); u.pi=0; return; }
       if(distRect(u.x,u.y,b)<=1.2){
-        st.players[u.owner][u.carryType]+=u.carry; u.carry=0;
+        st.players[u.owner][u.carryType]+=u.carry;
+        if(st.scores) st.scores[u.owner].res+=u.carry;
+        u.carry=0;
         st.events.push({t:'deposit',id:u.id});
         // go back
         if(u.farmId){ const f=ent(u.farmId); if(f&&!f.dead){ u.state='toRes'; u.path=findPath(u.x,u.y,goalAdjRect(f),f.x,f.y); u.pi=0; return; } u.farmId=0; }
@@ -686,6 +729,7 @@ function tickBldg(b,dt){
       if(b.workDone>=b.workNeed){
         b.done=true; b.hp=b.maxhp;
         recalcPop(b.owner);
+        if(st.scores) st.scores[b.owner].built++;
         st.events.push({t:'built',id:b.id,pi:b.owner,bt:b.bt});
       }
     }
@@ -751,11 +795,11 @@ function tickProj(p,dt){
   if(d<=step||p.age>6){
     p.hit=true;
     if(p.splash>0){
-      for(const v of st.units) if(!v.dead&&v.owner!==p.owner&&Math.hypot(v.x-p.tx,v.y-p.ty)<=p.splash) applyDamage(v,p.dmg,null);
-      for(const b of st.bldgs) if(!b.dead&&b.owner!==p.owner&&distRect(p.tx,p.ty,b)<=p.splash) applyDamage(b,p.dmg,null);
+      for(const v of st.units) if(!v.dead&&v.owner!==p.owner&&Math.hypot(v.x-p.tx,v.y-p.ty)<=p.splash) applyDamage(v,p.dmg,null,p.owner);
+      for(const b of st.bldgs) if(!b.dead&&b.owner!==p.owner&&distRect(p.tx,p.ty,b)<=p.splash) applyDamage(b,p.dmg,null,p.owner);
       st.events.push({t:'boom',x:p.tx,y:p.ty});
     } else if(t&&!t.dead){
-      applyDamage(t,p.dmg,null);
+      applyDamage(t,p.dmg,null,p.owner);
     }
     return;
   }
@@ -791,7 +835,7 @@ function separate(){
 
 // ---------- visibility ----------
 function updateVis(){
-  for(let pi=0;pi<2;pi++){
+  for(let pi=0;pi<1;pi++){
     const vis=st.vis[pi];
     for(let i=0;i<vis.length;i++) if(vis[i]===2) vis[i]=1;
     const mark=(x,y,r)=>{
@@ -811,6 +855,8 @@ function updateVis(){
 // ---------- AI ----------
 function aiTick(pi){
   const p=st.players[pi];
+  if(p.eliminated) return;
+  const prof=p.ai.prof||DIFFS.normal;
   const my=st.bldgs.filter(b=>!b.dead&&b.owner===pi);
   const tc=my.find(b=>b.bt==='towncenter');
   if(!tc) return;
@@ -820,10 +866,10 @@ function aiTick(pi){
   const has=bt=>my.some(b=>b.bt===bt&&b.done);
   const building=bt=>my.some(b=>b.bt===bt&&!b.done);
   const count=bt=>my.filter(b=>b.bt===bt).length;
-  const vTarget=[13,18,24,28][p.age];
+  const vTarget=prof.vt[p.age];
 
   // --- age up intent + savings mode ---
-  let wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
+  let wantAge = p.age<3 && vills.length>=Math.max(6,prof.vt[p.age]-2);
   if(st.ageCap && !st.players[0].isAI && pi!==0 && p.age>=st.players[0].age) wantAge=false;
   const ageCost = p.age<3?AGE_COST[p.age+1]:null;
   p.ai.saving = wantAge && ageCost && !(p.food>=ageCost.food&&p.gold>=ageCost.gold);
@@ -844,7 +890,7 @@ function aiTick(pi){
     if(vills.length>=8 && !has('barracks') && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
     if(p.age>=1 && !has('archery') && !building('archery')) aiBuild(pi,'archery',tc,vills);
     if(p.age>=2 && !has('stable') && !building('stable')) aiBuild(pi,'stable',tc,vills);
-    if(p.age>=2 && count('barracks')<2 && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
+    if(prof.multiProd && p.age>=2 && count('barracks')<2 && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
     if(p.age>=3 && !has('workshop') && !building('workshop')) aiBuild(pi,'workshop',tc,vills);
   }
   // --- farms ---
@@ -879,7 +925,7 @@ function aiTick(pi){
   }
 
   // --- military training ---
-  if(!p.ai.saving){
+  if(!p.ai.saving && !(prof.lazy && ((st.time|0)%2===1))){
     for(const b of my){
       if(!b.done||!BLDGS[b.bt].trains||b.bt==='towncenter'||b.queue.length>=1) continue;
       const ut=BLDGS[b.bt].trains[0];
@@ -907,7 +953,7 @@ function aiTick(pi){
       foeB.sort((a,b2)=>Math.hypot(a.x-tc.x,a.y-tc.y)-Math.hypot(b2.x-tc.x,b2.y-tc.y));
       const tgt=foeB[0];
       cmdAttack(army.map(a=>a.id),tgt.id);
-      p.ai.wave=Math.min(24,p.ai.wave+4);
+      p.ai.wave=Math.min(prof.waveCap,p.ai.wave+prof.waveInc);
       p.ai.atkCool=90;
       st.events.push({t:'aiattack',pi});
     }
@@ -979,8 +1025,8 @@ function tick(dt){
   if(st.visT<=0){ st.visT=0.25; updateVis(); }
   st.aiT-=dt;
   if(st.aiT<=0){ st.aiT=1;
-    for(let pi=0;pi<2;pi++) if(st.players[pi].isAI&&!st.over) aiTick(pi);
-    for(let pi=0;pi<2;pi++) st.players[pi].popUsed=countPop(pi);
+    for(let pi=0;pi<st.players.length;pi++) if(st.players[pi].isAI&&!st.over) aiTick(pi);
+    for(let pi=0;pi<st.players.length;pi++) st.players[pi].popUsed=countPop(pi);
   }
   // compact dead
   if((st.time|0)%5===0){
@@ -1021,7 +1067,7 @@ return {
   get st(){return st;},
   cmdMove, cmdAttack, cmdGatherTile, cmdGatherFarm, cmdBuildPlace, cmdBuildTarget,
   cmdTrain, cmdAge, cmdStop, canPlace, canAfford, countPop, ent,
-  UNITS, BLDGS, AGES, AGE_COST, S, GRASS, TREE, BERRY, GOLD,
+  UNITS, BLDGS, AGES, AGE_COST, get S(){return S;}, GRASS, TREE, BERRY, GOLD,
   distRect,
 };
 })();

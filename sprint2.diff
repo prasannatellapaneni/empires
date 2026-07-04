@@ -1,0 +1,594 @@
+diff --git a/src/input.js b/src/input.js
+index 373386d..ff98f2c 100644
+--- a/src/input.js
++++ b/src/input.js
+@@ -161,6 +161,7 @@ function init(container){
+     if(UI.chatOpen){ if(e.key==='Escape')UI.closeChat(); return; }
+     if(e.key==='Enter'){ UI.openChat(); e.preventDefault(); return; }
+     keys[e.key.toLowerCase()]=true;
++    if(e.key==='Tab'){ e.preventDefault(); UI.showScore(true); return; }
+     const digitCode=(e.code&&(e.code.startsWith('Digit')||e.code.startsWith('Numpad')))?e.code.replace('Digit','').replace('Numpad',''):null;
+     if(digitCode>='1'&&digitCode<='9'){
+       const d=digitCode;
+@@ -191,7 +192,10 @@ function init(container){
+       if(ids.length) setSelection(ids);
+     }
+   });
+-  window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
++  window.addEventListener('keyup',e=>{
++    keys[e.key.toLowerCase()]=false;
++    if(e.key==='Tab') UI.showScore(false);
++  });
+   // touch
+   let touches=new Map(), lastPinch=0, touchMoved=false, longT=null;
+   dom.addEventListener('touchstart',e=>{
+diff --git a/src/main.js b/src/main.js
+index b16d54e..aed63f7 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -1,16 +1,28 @@
+ 'use strict';
+ /* Empires 3D — bootstrap & main loop. */
+ const Main = (() => {
+-let last=0, acc=0, started=false;
++let last=0, acc=0, started=false, intro=null;
+ const STEP=0.05;
+ function boot(){
++  UI.initTitle(start);
++}
++function start(opts){
+   const seed=(Math.random()*1e9)|0;
+-  Sim.newGame(seed);
++  Sim.newGame(seed,opts);
+   const view=document.getElementById('view');
+   Render.init(Sim,view);
+   UI.init();
+   Input.init(view);
+-  UI.toast('Your villagers await orders. Press H for help.');
++  // grand opening: sweep from high over map center down to your Town Center
++  const tc=Sim.st.bldgs.find(b=>b.owner===0&&b.bt==='towncenter');
++  intro={t:0,dur:2.8,
++    from:{x:Sim.S/2,z:Sim.S/2,d:58},
++    to:{x:tc.x,z:tc.y+4,d:28}};
++  Render.cam.tx=intro.from.x; Render.cam.tz=intro.from.z; Render.cam.dist=intro.from.d;
++  Render.applyCam();
++  const cancel=()=>{intro=null;window.removeEventListener('mousedown',cancel);window.removeEventListener('keydown',cancel);};
++  window.addEventListener('mousedown',cancel); window.addEventListener('keydown',cancel);
++  Sfx.play('age');
+   started=true;
+   last=performance.now();
+   requestAnimationFrame(frame);
+@@ -25,7 +37,17 @@ function frame(now){
+   // fan out sim events
+   for(const e of Sim.st.events){ Render.onEvent(e); UI.onEvent(e); }
+   Sim.st.events.length=0;
+-  Input.tick(dt);
++  if(intro){
++    intro.t+=dt;
++    const e=Math.min(1,intro.t/intro.dur), k=1-Math.pow(1-e,3);
++    Render.cam.tx=intro.from.x+(intro.to.x-intro.from.x)*k;
++    Render.cam.tz=intro.from.z+(intro.to.z-intro.from.z)*k;
++    Render.cam.dist=intro.from.d+(intro.to.d-intro.from.d)*k;
++    Render.applyCam();
++    if(e>=1){ intro=null; UI.ageBanner(0); UI.toast('Your villagers await orders. Press H for help.'); }
++  } else {
++    Input.tick(dt);
++  }
+   UI.tick(dt);
+   Render.update(dt);
+ }
+diff --git a/src/render.js b/src/render.js
+index 8673bb8..761d39d 100644
+--- a/src/render.js
++++ b/src/render.js
+@@ -1,8 +1,8 @@
+ 'use strict';
+ /* Empires 3D — renderer (THREE r128, global). */
+ const Render = (() => {
+-const TEAM = [0x2f6fd6, 0xc0392b];
+-const TEAM_DARK = [0x1d4488, 0x7c241b];
++const TEAM = [0x2f6fd6, 0xc0392b, 0x3f9b46, 0xcfa93a];
++const TEAM_DARK = [0x1d4488, 0x7c241b, 0x265c2a, 0x7c6420];
+ let scene, camera, renderer, sim, dom;
+ let terrain, fogMesh, fogTex, fogCtx, fogData;
+ let sunLight, hemi;
+@@ -84,8 +84,8 @@ function buildMats(){
+       return makeMat({map:tex(g2,1)});})(),
+     wood:makeMat({color:0x6d4f2c}),
+     horseA:makeMat({color:0x6e4a2a}), horseB:makeMat({color:0x4a361f}),
+-    team:[makeMat({color:TEAM[0]}),makeMat({color:TEAM[1]})],
+-    teamDark:[makeMat({color:TEAM_DARK[0]}),makeMat({color:TEAM_DARK[1]})],
++    team:TEAM.map(c=>makeMat({color:c})),
++    teamDark:TEAM_DARK.map(c=>makeMat({color:c})),
+   };
+ }
+ 
+diff --git a/src/shell.html b/src/shell.html
+index 2e2b42d..82cac78 100644
+--- a/src/shell.html
++++ b/src/shell.html
+@@ -30,6 +30,26 @@
+ 
+ <div id="chatwrap"><input id="chatinput" maxlength="60" placeholder="Speak, or whisper a cheat code…" autocomplete="off"></div>
+ 
++<div id="scorewrap"></div>
++
++<div id="title">
++  <h1>Empires</h1>
++  <div class="tsub">Gather. Build. Advance. Conquer.</div>
++  <div class="trow"><span>Difficulty</span>
++    <button class="tdiff" data-v="easiest">Easiest</button>
++    <button class="tdiff" data-v="easy">Easy</button>
++    <button class="tdiff sel" data-v="normal">Normal</button>
++    <button class="tdiff" data-v="hard">Hard</button>
++  </div>
++  <div class="trow"><span>Opponents</span>
++    <button class="topp sel" data-v="1">1</button>
++    <button class="topp" data-v="2">2</button>
++    <button class="topp" data-v="3">3</button>
++  </div>
++  <button id="btn-start">Begin Your Reign</button>
++  <div class="tfoot">On Easiest and Easy, enemies will never advance to an age beyond yours.<br>With 2–3 opponents it is a free-for-all — they fight each other too.</div>
++</div>
++
+ <div id="overlay">
+   <div id="over-title"></div>
+   <div id="over-sub"></div>
+@@ -45,6 +65,7 @@
+     <p><b>Military:</b> build a Barracks for swordsmen. Advance ages at the Town Center to unlock the Archery Range, Stable, and Siege Workshop — and stronger troops.</p>
+     <p><b>Camera:</b> W A S D / arrows / screen edge to pan, mouse wheel to zoom, Q and E to rotate, middle-drag to pan. Click the minimap to jump.</p>
+     <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · <b>.</b> cycle idle villagers · Esc cancel/deselect · H help · M sound.</p>
++<p><b>Scores:</b> hold Tab for the live scorecard.</p>
+ <p><b>Groups:</b> Shift+1–9 assigns selected units to a group, 1–9 recalls it, double-tap the digit to jump the camera there.</p>
+ <p><b>Chat:</b> press Enter to open the chat line. Old soldiers speak of strange words with strange powers…</p>
+     <p><b>Touch:</b> tap to select, drag to pan, pinch to zoom, long-press to order.</p>
+diff --git a/src/sim.js b/src/sim.js
+index d0df2e8..21e6078 100644
+--- a/src/sim.js
++++ b/src/sim.js
+@@ -20,7 +20,7 @@ function makeNoise(seed){
+ function fbm(n,x,y,oct){let s=0,a=1,f=1,t=0;for(let i=0;i<oct;i++){s+=n(x*f,y*f)*a;t+=a;a*=0.5;f*=2;}return s/t;}
+ 
+ // ---------- constants ----------
+-const S = 96;                       // map size in tiles
++let S = 96;                         // map size in tiles (set per game)
+ const GRASS=0, TREE=1, BERRY=2, GOLD=3;
+ const AGES = ['Dark Age','Feudal Age','Castle Age','Imperial Age'];
+ const AGE_COST = [null,{food:400,gold:150},{food:700,gold:350},{food:1100,gold:650}];
+@@ -45,6 +45,12 @@ const BLDGS = {
+   workshop:  {name:'Siege Workshop',size:3,hp:330,cost:{wood:200,gold:80}, work:32, age:3, sight:5, trains:['catapult']},
+   tower:     {name:'Watch Tower', size:2, hp:300, cost:{wood:80,gold:80},  work:26, age:1, sight:9, atk:8, range:7.5, rof:2},
+ };
++const DIFFS = {
++  easiest:{vt:[8,10,12,14],  first:480, wave0:4, waveInc:2, waveCap:10, lazy:true,  multiProd:false, bonus:0,   cap:true},
++  easy:   {vt:[10,14,18,20], first:380, wave0:5, waveInc:3, waveCap:14, lazy:false, multiProd:false, bonus:0,   cap:true},
++  normal: {vt:[13,18,24,28], first:300, wave0:6, waveInc:4, waveCap:24, lazy:false, multiProd:true,  bonus:0,   cap:false},
++  hard:   {vt:[14,20,26,30], first:240, wave0:8, waveInc:5, waveCap:30, lazy:false, multiProd:true,  bonus:150, cap:false},
++};
+ const RES_AMT = {[TREE]:120,[BERRY]:150,[GOLD]:500};
+ const RES_KIND = {[TREE]:'wood',[BERRY]:'food',[GOLD]:'gold'};
+ const GATHER_RATE = 0.9, FARM_RATE = 0.75, CARRY = 10;
+@@ -56,25 +62,34 @@ const inB=(x,y)=>x>=0&&y>=0&&x<S&&y<S;
+ 
+ function newGame(seed, opts){
+   opts = opts||{};
++  const diff = DIFFS[opts.difficulty]||DIFFS.normal;
++  const nOpp = Math.min(3,Math.max(1,opts.opponents||1));
++  S = nOpp>=2 ? 120 : 96;
++  if(_g.length!==S*S){ _g=new Float32Array(S*S); _ver=new Int32Array(S*S); _par=new Int32Array(S*S); _curVer=0; }
+   const rand = mulberry32(seed|0);
+   st = {
+     seed:seed|0, size:S, time:0, over:false, winner:-1,
+     tiles:new Uint8Array(S*S), res:new Float32Array(S*S), occ:new Int32Array(S*S),
+     height:new Float32Array((S+1)*(S+1)),
+     units:[], bldgs:[], proj:[], byId:new Map(), nextId:1,
+-    players:[mkPlayer(false),mkPlayer(true)],
+-    vis:[new Uint8Array(S*S), new Uint8Array(S*S)],
++    players:[mkPlayer(false)].concat(Array.from({length:nOpp},()=>mkPlayer(true))),
++    vis:[new Uint8Array(S*S)],
+     claims:new Map(), events:[], visT:0, aiT:0, sepT:0,
+-    warp:false, cheated:false, ageCap:opts.ageCap!==false,
+-    rand,
++    warp:false, cheated:false, ageCap:diff.cap, difficulty:opts.difficulty||'normal',
++    scores:null, rand,
+   };
++  st.scores = st.players.map(()=>({kills:0,losses:0,razings:0,res:0,built:0}));
+   if (opts.p0ai) st.players[0].isAI = true;
++  for(const p of st.players) if(p.isAI){
++    p.ai.prof=diff; p.ai.wave=diff.wave0; p.ai.nextAtk=diff.first;
++    p.wood+=diff.bonus; p.food+=diff.bonus; p.gold+=diff.bonus;
++  }
+   genMap(rand);
+   return st;
+ }
+ function mkPlayer(isAI){
+-  return {wood:200, food:200, gold:100, age:0, popUsed:0, popCap:0, isAI,
+-          ai:{saving:false, wave:6, nextAtk:300, atkCool:0, lastReassign:0}};
++  return {wood:200, food:200, gold:100, age:0, popUsed:0, popCap:0, isAI, eliminated:false,
++          ai:{saving:false, wave:6, nextAtk:300, atkCool:0, lastReassign:0, prof:DIFFS.normal}};
+ }
+ 
+ // ---------- map generation ----------
+@@ -83,7 +98,8 @@ function genMap(rand){
+   // heights (render-only)
+   for (let y=0;y<=S;y++) for (let x=0;x<=S;x++)
+     st.height[y*(S+1)+x] = (fbm(nH,x*0.045,y*0.045,4)-0.5)*3.4;
+-  const starts = [{x:15,y:15},{x:S-16,y:S-16}];
++  const corners = [{x:15,y:15},{x:S-16,y:S-16},{x:S-16,y:15},{x:15,y:S-16}];
++  const starts = corners.slice(0,st.players.length);
+   // flatten around starts
+   for (const s of starts) for (let y=0;y<=S;y++) for (let x=0;x<=S;x++){
+     const d=Math.hypot(x-s.x,y-s.y);
+@@ -96,8 +112,8 @@ function genMap(rand){
+     if (f>0.62 && dMin>7) setRes(x,y,TREE);
+   }
+   // scattered berry patches + gold mid-map
+-  scatterCluster(rand, S/2|0, S/2|0, 18, GOLD, 6);
+-  scatterCluster(rand, S/2|0, S/2|0, 22, BERRY, 8);
++  scatterCluster(rand, S/2|0, S/2|0, (S*0.19)|0, GOLD, Math.round(6*S/96));
++  scatterCluster(rand, S/2|0, S/2|0, (S*0.23)|0, BERRY, Math.round(8*S/96));
+   // guarantee resources near each start (verification pass)
+   for (const s of starts){
+     ensureNear(rand, s, TREE, 34, 16);
+@@ -105,7 +121,7 @@ function genMap(rand){
+     ensureNear(rand, s, GOLD, 10, 15);
+   }
+   // town centers + villagers
+-  for (let p=0;p<2;p++){
++  for (let p=0;p<starts.length;p++){
+     const s = starts[p];
+     clearRect(s.x-1,s.y-1,5);
+     const tc = addBldg(p, 'towncenter', s.x-1, s.y-1, true);
+@@ -169,7 +185,7 @@ function closestOnRect(px,py,b){
+ }
+ 
+ // ---------- A* pathfinding ----------
+-const _g=new Float32Array(S*S), _ver=new Int32Array(S*S), _par=new Int32Array(S*S);
++let _g=new Float32Array(S*S), _ver=new Int32Array(S*S), _par=new Int32Array(S*S);
+ let _curVer=0;
+ const _heap=[]; // [f, idx]
+ function hPush(f,i){_heap.push([f,i]);let c=_heap.length-1;while(c>0){const p=(c-1)>>1;if(_heap[p][0]<=_heap[c][0])break;const t=_heap[p];_heap[p]=_heap[c];_heap[c]=t;c=p;}}
+@@ -413,9 +429,16 @@ function dmgMul(att,target){
+   if(target.kind==='bldg'&&d&&d.bonusBld) return d.bonusBld;
+   return 1;
+ }
+-function applyDamage(target,dmg,attacker){
++function applyDamage(target,dmg,attacker,kpi){
+   if(target.dead||target.god) return;
+   target.hp-=dmg;
++  if(target.hp<=0){
++    const killer = kpi!==undefined&&kpi>=0 ? kpi : (attacker?attacker.owner:-1);
++    if(killer>=0&&killer!==target.owner&&st.scores){
++      if(target.kind==='unit'){ st.scores[killer].kills++; st.scores[target.owner].losses++; }
++      else st.scores[killer].razings++;
++    }
++  }
+   st.events.push({t:'hit',id:target.id,x:target.x,y:target.y});
+   if(target.kind==='bldg') target.lastHit=st.time;
+   // retaliation / flee
+@@ -440,10 +463,28 @@ function kill(e){
+     for(let y=e.gy;y<e.gy+e.size;y++)for(let x=e.gx;x<e.gx+e.size;x++)
+       if(st.occ[idx(x,y)]===e.id) st.occ[idx(x,y)]=0;
+     recalcPop(e.owner);
+-    if(e.bt==='towncenter'&&!st.over){
+-      st.over=true; st.winner=1-e.owner;
+-      st.events.push({t:'gameover',winner:st.winner});
+-    }
++    if(e.bt==='towncenter') eliminate(e.owner);
++  }
++}
++function eliminate(pi){
++  const p=st.players[pi];
++  if(p.eliminated) return;
++  p.eliminated=true;
++  st.events.push({t:'eliminated',pi});
++  for(const u of st.units) if(!u.dead&&u.owner===pi) kill(u);
++  for(const b of st.bldgs) if(!b.dead&&b.owner===pi) kill(b);
++  checkEnd();
++}
++function checkEnd(){
++  if(st.over) return;
++  const alive=[];
++  for(let i=0;i<st.players.length;i++) if(!st.players[i].eliminated) alive.push(i);
++  if(st.players[0].eliminated){
++    st.over=true; st.winner=alive.length===1?alive[0]:-1;
++    st.events.push({t:'gameover',winner:st.winner});
++  } else if(alive.length===1){
++    st.over=true; st.winner=alive[0];
++    st.events.push({t:'gameover',winner:st.winner});
+   }
+ }
+ 
+@@ -564,7 +605,9 @@ function tickVillager(u,dt){
+       if(!b||b.dead){ const d2=nearestDrop(u); if(!d2){u.state='idle';return;} u.dropId=d2.id;
+         u.path=findPath(u.x,u.y,goalAdjRect(d2),d2.x,d2.y); u.pi=0; return; }
+       if(distRect(u.x,u.y,b)<=1.2){
+-        st.players[u.owner][u.carryType]+=u.carry; u.carry=0;
++        st.players[u.owner][u.carryType]+=u.carry;
++        if(st.scores) st.scores[u.owner].res+=u.carry;
++        u.carry=0;
+         st.events.push({t:'deposit',id:u.id});
+         // go back
+         if(u.farmId){ const f=ent(u.farmId); if(f&&!f.dead){ u.state='toRes'; u.path=findPath(u.x,u.y,goalAdjRect(f),f.x,f.y); u.pi=0; return; } u.farmId=0; }
+@@ -686,6 +729,7 @@ function tickBldg(b,dt){
+       if(b.workDone>=b.workNeed){
+         b.done=true; b.hp=b.maxhp;
+         recalcPop(b.owner);
++        if(st.scores) st.scores[b.owner].built++;
+         st.events.push({t:'built',id:b.id,pi:b.owner,bt:b.bt});
+       }
+     }
+@@ -751,11 +795,11 @@ function tickProj(p,dt){
+   if(d<=step||p.age>6){
+     p.hit=true;
+     if(p.splash>0){
+-      for(const v of st.units) if(!v.dead&&v.owner!==p.owner&&Math.hypot(v.x-p.tx,v.y-p.ty)<=p.splash) applyDamage(v,p.dmg,null);
+-      for(const b of st.bldgs) if(!b.dead&&b.owner!==p.owner&&distRect(p.tx,p.ty,b)<=p.splash) applyDamage(b,p.dmg,null);
++      for(const v of st.units) if(!v.dead&&v.owner!==p.owner&&Math.hypot(v.x-p.tx,v.y-p.ty)<=p.splash) applyDamage(v,p.dmg,null,p.owner);
++      for(const b of st.bldgs) if(!b.dead&&b.owner!==p.owner&&distRect(p.tx,p.ty,b)<=p.splash) applyDamage(b,p.dmg,null,p.owner);
+       st.events.push({t:'boom',x:p.tx,y:p.ty});
+     } else if(t&&!t.dead){
+-      applyDamage(t,p.dmg,null);
++      applyDamage(t,p.dmg,null,p.owner);
+     }
+     return;
+   }
+@@ -791,7 +835,7 @@ function separate(){
+ 
+ // ---------- visibility ----------
+ function updateVis(){
+-  for(let pi=0;pi<2;pi++){
++  for(let pi=0;pi<1;pi++){
+     const vis=st.vis[pi];
+     for(let i=0;i<vis.length;i++) if(vis[i]===2) vis[i]=1;
+     const mark=(x,y,r)=>{
+@@ -811,6 +855,8 @@ function updateVis(){
+ // ---------- AI ----------
+ function aiTick(pi){
+   const p=st.players[pi];
++  if(p.eliminated) return;
++  const prof=p.ai.prof||DIFFS.normal;
+   const my=st.bldgs.filter(b=>!b.dead&&b.owner===pi);
+   const tc=my.find(b=>b.bt==='towncenter');
+   if(!tc) return;
+@@ -820,10 +866,10 @@ function aiTick(pi){
+   const has=bt=>my.some(b=>b.bt===bt&&b.done);
+   const building=bt=>my.some(b=>b.bt===bt&&!b.done);
+   const count=bt=>my.filter(b=>b.bt===bt).length;
+-  const vTarget=[13,18,24,28][p.age];
++  const vTarget=prof.vt[p.age];
+ 
+   // --- age up intent + savings mode ---
+-  let wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
++  let wantAge = p.age<3 && vills.length>=Math.max(6,prof.vt[p.age]-2);
+   if(st.ageCap && !st.players[0].isAI && pi!==0 && p.age>=st.players[0].age) wantAge=false;
+   const ageCost = p.age<3?AGE_COST[p.age+1]:null;
+   p.ai.saving = wantAge && ageCost && !(p.food>=ageCost.food&&p.gold>=ageCost.gold);
+@@ -844,7 +890,7 @@ function aiTick(pi){
+     if(vills.length>=8 && !has('barracks') && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
+     if(p.age>=1 && !has('archery') && !building('archery')) aiBuild(pi,'archery',tc,vills);
+     if(p.age>=2 && !has('stable') && !building('stable')) aiBuild(pi,'stable',tc,vills);
+-    if(p.age>=2 && count('barracks')<2 && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
++    if(prof.multiProd && p.age>=2 && count('barracks')<2 && !building('barracks')) aiBuild(pi,'barracks',tc,vills);
+     if(p.age>=3 && !has('workshop') && !building('workshop')) aiBuild(pi,'workshop',tc,vills);
+   }
+   // --- farms ---
+@@ -879,7 +925,7 @@ function aiTick(pi){
+   }
+ 
+   // --- military training ---
+-  if(!p.ai.saving){
++  if(!p.ai.saving && !(prof.lazy && ((st.time|0)%2===1))){
+     for(const b of my){
+       if(!b.done||!BLDGS[b.bt].trains||b.bt==='towncenter'||b.queue.length>=1) continue;
+       const ut=BLDGS[b.bt].trains[0];
+@@ -907,7 +953,7 @@ function aiTick(pi){
+       foeB.sort((a,b2)=>Math.hypot(a.x-tc.x,a.y-tc.y)-Math.hypot(b2.x-tc.x,b2.y-tc.y));
+       const tgt=foeB[0];
+       cmdAttack(army.map(a=>a.id),tgt.id);
+-      p.ai.wave=Math.min(24,p.ai.wave+4);
++      p.ai.wave=Math.min(prof.waveCap,p.ai.wave+prof.waveInc);
+       p.ai.atkCool=90;
+       st.events.push({t:'aiattack',pi});
+     }
+@@ -979,8 +1025,8 @@ function tick(dt){
+   if(st.visT<=0){ st.visT=0.25; updateVis(); }
+   st.aiT-=dt;
+   if(st.aiT<=0){ st.aiT=1;
+-    for(let pi=0;pi<2;pi++) if(st.players[pi].isAI&&!st.over) aiTick(pi);
+-    for(let pi=0;pi<2;pi++) st.players[pi].popUsed=countPop(pi);
++    for(let pi=0;pi<st.players.length;pi++) if(st.players[pi].isAI&&!st.over) aiTick(pi);
++    for(let pi=0;pi<st.players.length;pi++) st.players[pi].popUsed=countPop(pi);
+   }
+   // compact dead
+   if((st.time|0)%5===0){
+@@ -1021,7 +1067,7 @@ return {
+   get st(){return st;},
+   cmdMove, cmdAttack, cmdGatherTile, cmdGatherFarm, cmdBuildPlace, cmdBuildTarget,
+   cmdTrain, cmdAge, cmdStop, canPlace, canAfford, countPop, ent,
+-  UNITS, BLDGS, AGES, AGE_COST, S, GRASS, TREE, BERRY, GOLD,
++  UNITS, BLDGS, AGES, AGE_COST, get S(){return S;}, GRASS, TREE, BERRY, GOLD,
+   distRect,
+ };
+ })();
+diff --git a/src/style.css b/src/style.css
+index 21d7bab..8a17f3d 100644
+--- a/src/style.css
++++ b/src/style.css
+@@ -119,3 +119,33 @@ html,body{height:100%;overflow:hidden;background:#0c0e10;
+ #chatinput{width:100%;padding:9px 14px;background:rgba(15,17,20,.94);border:1px solid var(--brass-dim);
+   border-radius:3px;color:var(--parch);font-size:14px;outline:none;font-family:inherit}
+ #chatinput:focus{border-color:var(--brass)}
++
++/* sprint 2 */
++#title{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
++  background:radial-gradient(ellipse at 50% 30%,#232a33 0%,#0c0e10 75%)}
++#title h1{font-family:Georgia,serif;font-variant:small-caps;letter-spacing:.34em;font-size:74px;color:var(--brass);
++  text-shadow:0 3px 24px rgba(0,0,0,.9);margin-left:.34em}
++.tsub{color:var(--dim);font-size:15px;letter-spacing:.24em;text-transform:uppercase;margin-top:-10px}
++.trow{display:flex;align-items:center;gap:8px;margin-top:6px}
++.trow span{width:92px;text-align:right;color:var(--dim);font-size:13px;margin-right:6px}
++.tdiff,.topp{padding:8px 16px;background:linear-gradient(#31363e,#22262c);border:1px solid #454b54;border-radius:3px;
++  color:var(--ink);cursor:pointer;font-size:13px}
++.tdiff:hover,.topp:hover{border-color:var(--brass)}
++.tdiff.sel,.topp.sel{border-color:var(--brass);color:var(--brass);background:linear-gradient(#3a4048,#23272d)}
++#btn-start{margin-top:16px;padding:13px 42px;font-family:Georgia,serif;font-variant:small-caps;letter-spacing:.16em;
++  font-size:20px;color:var(--parch);cursor:pointer;background:linear-gradient(#3a4048,#23272d);
++  border:1px solid var(--brass);border-radius:3px}
++#btn-start:hover{filter:brightness(1.3)}
++.tfoot{color:var(--dim);font-size:12px;text-align:center;line-height:1.7;margin-top:8px}
++#scorewrap{position:fixed;inset:0;z-index:35;display:none;align-items:center;justify-content:center;pointer-events:none}
++#scorebox{padding:20px 26px;background:linear-gradient(#262b32f2,#181c21f2);border:2px solid var(--brass-dim);border-radius:5px;min-width:440px}
++#scorebox h2,#finalscore{font-family:Georgia,serif;font-variant:small-caps;letter-spacing:.14em;color:var(--brass)}
++#scorebox table,#finalscore table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px;font-variant:normal;letter-spacing:0;color:var(--ink)}
++#scorebox th,#finalscore th{text-align:left;color:var(--dim);font-weight:600;padding:4px 12px 6px 0;border-bottom:1px solid #3a3f47}
++#scorebox td,#finalscore td{padding:6px 12px 6px 0}
++tr.elim td{opacity:.45;text-decoration:line-through}
++.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
++.cheatnote{margin-top:10px;color:var(--bad);font-size:12px;font-variant:normal;letter-spacing:0}
++#finalscore{margin-top:16px;font-size:13px}
++#finalscore table{color:var(--ink)}
++@media (max-width:760px){ #title h1{font-size:46px} #scorebox{min-width:0;width:92vw} }
+diff --git a/src/ui.js b/src/ui.js
+index d1d3940..f12ee65 100644
+--- a/src/ui.js
++++ b/src/ui.js
+@@ -41,9 +41,22 @@ const RES_ICONS={
+   pop:'<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3.4" fill="#cfd6dd"/><path d="M3 17 q7 -8 14 0 z" fill="#cfd6dd"/></svg>',
+ };
+ const BUILD_MENU=['house','farm','barracks','archery','stable','workshop','tower'];
++const PNAMES=['You','Red','Green','Yellow'];
++const PCOLORS=['#4d8bf0','#e05242','#4fb75a','#e0b84d'];
++const PCOLORS_U=['#8fc1ff','#ff8d7a','#8fe09a','#ffe08f'];
+ 
+ function q(id){ return document.getElementById(id); }
+ function costStr(c){ return Object.entries(c).map(([k,v])=>v+' '+k).join(', '); }
++function initTitle(startCb){
++  const t=q('title');
++  let diff='normal', opp=1;
++  const wire=(cls,cb)=>{ for(const b of t.querySelectorAll(cls)) b.onclick=()=>{
++    for(const x of t.querySelectorAll(cls)) x.classList.remove('sel');
++    b.classList.add('sel'); cb(b.dataset.v); }; };
++  wire('.tdiff',v=>diff=v);
++  wire('.topp',v=>opp=+v);
++  q('btn-start').onclick=()=>{ t.style.display='none'; startCb({difficulty:diff,opponents:opp}); };
++}
+ function init(){
+   el.wood=q('r-wood'); el.food=q('r-food'); el.gold=q('r-gold'); el.pop=q('r-pop');
+   el.age=q('agename'); el.panel=q('selpanel'); el.card=q('cmdcard');
+@@ -108,13 +121,13 @@ function drawMinimap(){
+     if(b.dead) continue;
+     const v=vis[(b.y|0)*S+(b.x|0)];
+     if(b.owner!==0&&v===0) continue;
+-    mmCtx.fillStyle=b.owner===0?'#4d8bf0':'#e05242';
++    mmCtx.fillStyle=PCOLORS[b.owner]||'#e05242';
+     mmCtx.fillRect((b.gx)*sc,(b.gy)*sc,b.size*sc,b.size*sc);
+   }
+   for(const u of st.units){
+     if(u.dead) continue;
+     if(u.owner!==0&&vis[(u.y|0)*S+(u.x|0)]!==2) continue;
+-    mmCtx.fillStyle=u.owner===0?'#8fc1ff':'#ff8d7a';
++    mmCtx.fillStyle=PCOLORS_U[u.owner]||'#ff8d7a';
+     mmCtx.fillRect(u.x*sc-1,u.y*sc-1,2.4,2.4);
+   }
+   // camera frustum
+@@ -247,9 +260,9 @@ function toggleHelp(){ el.help.classList.toggle('open'); }
+ function gameOver(winner){
+   el.over.style.display='flex';
+   q('over-title').textContent=winner===0?'Victory':'Defeat';
+-  q('over-sub').textContent=winner===0
+-    ? 'The enemy Town Center has fallen. Your empire endures.'
+-    : 'Your Town Center lies in ruins.';
++  q('over-sub').innerHTML=(winner===0
++    ? 'Every rival Town Center has fallen. Your empire endures.'
++    : 'Your Town Center lies in ruins.')+'<div id="finalscore">'+scoreHTML()+'</div>';
+   el.over.className=winner===0?'win':'lose';
+   Sfx.play(winner===0?'win':'lose');
+ }
+@@ -265,13 +278,36 @@ function onEvent(e){
+     case 'boom': Sfx.play('boom'); break;
+     case 'built': if(e.pi===0){Sfx.play('built');} refreshPanel(); break;
+     case 'age': if(e.pi===0){Sfx.play('age');ageBanner(e.age);toast('You have advanced to the '+Sim.AGES[e.age]+'!');}
+-      else toast('The enemy has advanced to the '+Sim.AGES[e.age]+'.');
++      else toast(PNAMES[e.pi]+' has advanced to the '+Sim.AGES[e.age]+'.');
+       refreshPanel(); break;
++    case 'eliminated': if(e.pi!==0){ toast(PNAMES[e.pi]+' has been eliminated!'); Sfx.play('boom'); } break;
+     case 'msg': if(e.pi===0&&e.msg==='needhouse') toast('Build more houses to raise your population cap.'); break;
+     case 'gameover': gameOver(e.winner); break;
+     case 'spawn': refreshPanel(); break;
+   }
+ }
++// ---------- scorecard ----------
++function scoreHTML(){
++  const st=Sim.st;
++  let rows='';
++  for(let pi=0;pi<st.players.length;pi++){
++    const p=st.players[pi], sc=st.scores[pi];
++    const mil=sc.kills*20+sc.razings*60;
++    const eco=Math.round(sc.res/10);
++    const tech=p.age*500+sc.built*20;
++    rows+='<tr'+(p.eliminated?' class="elim"':'')+'>'+
++      '<td><span class="dot" style="background:'+PCOLORS[pi]+'"></span>'+PNAMES[pi]+(p.eliminated?' †':'')+'</td>'+
++      '<td>'+Sim.AGES[p.age].split(' ')[0]+'</td><td>'+mil+'</td><td>'+eco+'</td><td>'+tech+'</td>'+
++      '<td><b>'+(mil+eco+tech)+'</b></td></tr>';
++  }
++  return '<table><tr><th>Player</th><th>Age</th><th>Military</th><th>Economy</th><th>Tech</th><th>Total</th></tr>'+rows+'</table>'+
++    (st.cheated?'<div class="cheatnote">Cheats were used — scores are unofficial.</div>':'');
++}
++function showScore(on){
++  const w=q('scorewrap');
++  if(on){ w.innerHTML='<div id="scorebox"><h2>Score</h2>'+scoreHTML()+'</div>'; w.style.display='flex'; }
++  else w.style.display='none';
++}
+ // ---------- chat console / cheats ----------
+ function openChat(){ chatOpen=true; el.chat.style.display='block'; el.chatIn.value=''; setTimeout(()=>el.chatIn.focus(),0); }
+ function closeChat(){ chatOpen=false; el.chat.style.display='none'; el.chatIn.blur(); }
+@@ -295,6 +331,6 @@ function tick(dt){
+   // live queue progress refresh when a building is selected
+   if(curSel.length===1){ const e=Sim.ent(curSel[0]); if(e&&e.kind==='bldg'&&(e.queue.length||!e.done)){ if((tick._q=(tick._q||0)+dt)>0.5){tick._q=0;refreshPanel();} } }
+ }
+-return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
+-         showResource, openChat, closeChat, get chatOpen(){return chatOpen;} };
++return { init, initTitle, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
++         showResource, showScore, ageBanner, openChat, closeChat, get chatOpen(){return chatOpen;} };
+ })();
+diff --git a/test.js b/test.js
+index 8d2d07b..bf0520a 100644
+--- a/test.js
++++ b/test.js
+@@ -95,7 +95,7 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
+ 
+ // ---------- Test 4: sprint 1 — age cap + cheats ----------
+ {
+-  const st = Sim.newGame(99); // player 0 human (not AI) -> cap active
++  const st = Sim.newGame(99,{difficulty:'easy'}); // cap active on easy
+   st.players[1].wood=99999; st.players[1].food=99999; st.players[1].gold=99999;
+   // give AI plenty of villagers virtually by running economy long enough is slow;
+   // instead assert the cap gate directly: run 8 min, AI should never exceed player age 0
+@@ -119,5 +119,26 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
+   ok(cow.god===true, 'god mode toggles on unit');
+ }
+ 
++// ---------- Test 5: sprint 2 — 3-opponent FFA on 120 map ----------
++{
++  const st = Sim.newGame(555,{p0ai:true,opponents:3,difficulty:'normal'});
++  ok(st.players.length===4, '4 players created');
++  ok(Sim.S===120, 'map scaled to 120 for multi-opponent');
++  ok(st.bldgs.filter(b=>b.bt==='towncenter').length===4, '4 town centers placed');
++  const dt=0.05; let attacks=0, elims=0; const peaks=[0,0,0,0];
++  for(let t=0;t<800;t+=dt){
++    Sim.tick(dt);
++    for(const e of st.events){ if(e.t==='aiattack')attacks++; if(e.t==='eliminated')elims++; }
++    st.events.length=0;
++    if(Math.round(t*20)%600===0)
++      for(let pi=0;pi<4;pi++) peaks[pi]=Math.max(peaks[pi],st.units.filter(u=>!u.dead&&u.owner===pi&&u.ut==='villager').length);
++    if(st.over) break;
++  }
++  ok(peaks.every(n=>n>=8), 'all four economies grew during the FFA (peak villagers: '+peaks.join('/')+')');
++  ok(attacks>=1, 'FFA attack waves launched ('+attacks+')');
++  console.log('FFA: eliminations='+elims+' over='+st.over+' winner='+st.winner+' t='+st.time.toFixed(0));
++  ok(st.scores.some(sc=>sc.res>500), 'score tracking accumulates gathered resources');
++}
++
+ console.log(fails===0 ? '\nALL TESTS PASSED' : '\n'+fails+' TEST(S) FAILED');
+ process.exit(fails===0?0:1);

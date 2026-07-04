@@ -95,7 +95,7 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
 
 // ---------- Test 4: sprint 1 — age cap + cheats ----------
 {
-  const st = Sim.newGame(99); // player 0 human (not AI) -> cap active
+  const st = Sim.newGame(99,{difficulty:'easy'}); // cap active on easy
   st.players[1].wood=99999; st.players[1].food=99999; st.players[1].gold=99999;
   // give AI plenty of villagers virtually by running economy long enough is slow;
   // instead assert the cap gate directly: run 8 min, AI should never exceed player age 0
@@ -117,6 +117,27 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
     // simulate a hit via a projectile landing: easiest is checking god flag honored by damage path
   })();
   ok(cow.god===true, 'god mode toggles on unit');
+}
+
+// ---------- Test 5: sprint 2 — 3-opponent FFA on 120 map ----------
+{
+  const st = Sim.newGame(555,{p0ai:true,opponents:3,difficulty:'normal'});
+  ok(st.players.length===4, '4 players created');
+  ok(Sim.S===120, 'map scaled to 120 for multi-opponent');
+  ok(st.bldgs.filter(b=>b.bt==='towncenter').length===4, '4 town centers placed');
+  const dt=0.05; let attacks=0, elims=0; const peaks=[0,0,0,0];
+  for(let t=0;t<800;t+=dt){
+    Sim.tick(dt);
+    for(const e of st.events){ if(e.t==='aiattack')attacks++; if(e.t==='eliminated')elims++; }
+    st.events.length=0;
+    if(Math.round(t*20)%600===0)
+      for(let pi=0;pi<4;pi++) peaks[pi]=Math.max(peaks[pi],st.units.filter(u=>!u.dead&&u.owner===pi&&u.ut==='villager').length);
+    if(st.over) break;
+  }
+  ok(peaks.every(n=>n>=8), 'all four economies grew during the FFA (peak villagers: '+peaks.join('/')+')');
+  ok(attacks>=1, 'FFA attack waves launched ('+attacks+')');
+  console.log('FFA: eliminations='+elims+' over='+st.over+' winner='+st.winner+' t='+st.time.toFixed(0));
+  ok(st.scores.some(sc=>sc.res>500), 'score tracking accumulates gathered resources');
 }
 
 console.log(fails===0 ? '\nALL TESTS PASSED' : '\n'+fails+' TEST(S) FAILED');

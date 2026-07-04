@@ -1,8 +1,8 @@
 'use strict';
 /* Empires 3D — renderer (THREE r128, global). */
 const Render = (() => {
-const TEAM = [0x2f6fd6, 0xc0392b];
-const TEAM_DARK = [0x1d4488, 0x7c241b];
+const TEAM = [0x2f6fd6, 0xc0392b, 0x3f9b46, 0xcfa93a];
+const TEAM_DARK = [0x1d4488, 0x7c241b, 0x265c2a, 0x7c6420];
 let scene, camera, renderer, sim, dom;
 let terrain, fogMesh, fogTex, fogCtx, fogData;
 let sunLight, hemi;
@@ -84,8 +84,8 @@ function buildMats(){
       return makeMat({map:tex(g2,1)});})(),
     wood:makeMat({color:0x6d4f2c}),
     horseA:makeMat({color:0x6e4a2a}), horseB:makeMat({color:0x4a361f}),
-    team:[makeMat({color:TEAM[0]}),makeMat({color:TEAM[1]})],
-    teamDark:[makeMat({color:TEAM_DARK[0]}),makeMat({color:TEAM_DARK[1]})],
+    team:TEAM.map(c=>makeMat({color:c})),
+    teamDark:TEAM_DARK.map(c=>makeMat({color:c})),
   };
 }
 

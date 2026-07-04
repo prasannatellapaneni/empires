@@ -41,9 +41,22 @@ const RES_ICONS={
   pop:'<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3.4" fill="#cfd6dd"/><path d="M3 17 q7 -8 14 0 z" fill="#cfd6dd"/></svg>',
 };
 const BUILD_MENU=['house','farm','barracks','archery','stable','workshop','tower'];
+const PNAMES=['You','Red','Green','Yellow'];
+const PCOLORS=['#4d8bf0','#e05242','#4fb75a','#e0b84d'];
+const PCOLORS_U=['#8fc1ff','#ff8d7a','#8fe09a','#ffe08f'];
 
 function q(id){ return document.getElementById(id); }
 function costStr(c){ return Object.entries(c).map(([k,v])=>v+' '+k).join(', '); }
+function initTitle(startCb){
+  const t=q('title');
+  let diff='normal', opp=1;
+  const wire=(cls,cb)=>{ for(const b of t.querySelectorAll(cls)) b.onclick=()=>{
+    for(const x of t.querySelectorAll(cls)) x.classList.remove('sel');
+    b.classList.add('sel'); cb(b.dataset.v); }; };
+  wire('.tdiff',v=>diff=v);
+  wire('.topp',v=>opp=+v);
+  q('btn-start').onclick=()=>{ t.style.display='none'; startCb({difficulty:diff,opponents:opp}); };
+}
 function init(){
   el.wood=q('r-wood'); el.food=q('r-food'); el.gold=q('r-gold'); el.pop=q('r-pop');
   el.age=q('agename'); el.panel=q('selpanel'); el.card=q('cmdcard');
@@ -108,13 +121,13 @@ function drawMinimap(){
     if(b.dead) continue;
     const v=vis[(b.y|0)*S+(b.x|0)];
     if(b.owner!==0&&v===0) continue;
-    mmCtx.fillStyle=b.owner===0?'#4d8bf0':'#e05242';
+    mmCtx.fillStyle=PCOLORS[b.owner]||'#e05242';
     mmCtx.fillRect((b.gx)*sc,(b.gy)*sc,b.size*sc,b.size*sc);
   }
   for(const u of st.units){
     if(u.dead) continue;
     if(u.owner!==0&&vis[(u.y|0)*S+(u.x|0)]!==2) continue;
-    mmCtx.fillStyle=u.owner===0?'#8fc1ff':'#ff8d7a';
+    mmCtx.fillStyle=PCOLORS_U[u.owner]||'#ff8d7a';
     mmCtx.fillRect(u.x*sc-1,u.y*sc-1,2.4,2.4);
   }
   // camera frustum
@@ -247,9 +260,9 @@ function toggleHelp(){ el.help.classList.toggle('open'); }
 function gameOver(winner){
   el.over.style.display='flex';
   q('over-title').textContent=winner===0?'Victory':'Defeat';
-  q('over-sub').textContent=winner===0
-    ? 'The enemy Town Center has fallen. Your empire endures.'
-    : 'Your Town Center lies in ruins.';
+  q('over-sub').innerHTML=(winner===0
+    ? 'Every rival Town Center has fallen. Your empire endures.'
+    : 'Your Town Center lies in ruins.')+'<div id="finalscore">'+scoreHTML()+'</div>';
   el.over.className=winner===0?'win':'lose';
   Sfx.play(winner===0?'win':'lose');
 }
@@ -265,12 +278,35 @@ function onEvent(e){
     case 'boom': Sfx.play('boom'); break;
     case 'built': if(e.pi===0){Sfx.play('built');} refreshPanel(); break;
     case 'age': if(e.pi===0){Sfx.play('age');ageBanner(e.age);toast('You have advanced to the '+Sim.AGES[e.age]+'!');}
-      else toast('The enemy has advanced to the '+Sim.AGES[e.age]+'.');
+      else toast(PNAMES[e.pi]+' has advanced to the '+Sim.AGES[e.age]+'.');
       refreshPanel(); break;
+    case 'eliminated': if(e.pi!==0){ toast(PNAMES[e.pi]+' has been eliminated!'); Sfx.play('boom'); } break;
     case 'msg': if(e.pi===0&&e.msg==='needhouse') toast('Build more houses to raise your population cap.'); break;
     case 'gameover': gameOver(e.winner); break;
     case 'spawn': refreshPanel(); break;
   }
+}
+// ---------- scorecard ----------
+function scoreHTML(){
+  const st=Sim.st;
+  let rows='';
+  for(let pi=0;pi<st.players.length;pi++){
+    const p=st.players[pi], sc=st.scores[pi];
+    const mil=sc.kills*20+sc.razings*60;
+    const eco=Math.round(sc.res/10);
+    const tech=p.age*500+sc.built*20;
+    rows+='<tr'+(p.eliminated?' class="elim"':'')+'>'+
+      '<td><span class="dot" style="background:'+PCOLORS[pi]+'"></span>'+PNAMES[pi]+(p.eliminated?' †':'')+'</td>'+
+      '<td>'+Sim.AGES[p.age].split(' ')[0]+'</td><td>'+mil+'</td><td>'+eco+'</td><td>'+tech+'</td>'+
+      '<td><b>'+(mil+eco+tech)+'</b></td></tr>';
+  }
+  return '<table><tr><th>Player</th><th>Age</th><th>Military</th><th>Economy</th><th>Tech</th><th>Total</th></tr>'+rows+'</table>'+
+    (st.cheated?'<div class="cheatnote">Cheats were used — scores are unofficial.</div>':'');
+}
+function showScore(on){
+  const w=q('scorewrap');
+  if(on){ w.innerHTML='<div id="scorebox"><h2>Score</h2>'+scoreHTML()+'</div>'; w.style.display='flex'; }
+  else w.style.display='none';
 }
 // ---------- chat console / cheats ----------
 function openChat(){ chatOpen=true; el.chat.style.display='block'; el.chatIn.value=''; setTimeout(()=>el.chatIn.focus(),0); }
@@ -295,6 +331,6 @@ function tick(dt){
   // live queue progress refresh when a building is selected
   if(curSel.length===1){ const e=Sim.ent(curSel[0]); if(e&&e.kind==='bldg'&&(e.queue.length||!e.done)){ if((tick._q=(tick._q||0)+dt)>0.5){tick._q=0;refreshPanel();} } }
 }
-return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
-         showResource, openChat, closeChat, get chatOpen(){return chatOpen;} };
+return { init, initTitle, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
+         showResource, showScore, ageBanner, openChat, closeChat, get chatOpen(){return chatOpen;} };
 })();

@@ -33,7 +33,7 @@ const Sfx = (() => {
 })();
 
 const UI = (() => {
-let el={}, mmCtx, mmBase, curSel=[], toastT=null;
+let el={}, mmCtx, mmBase, curSel=[], toastT=null, curRes=null, chatOpen=false;
 const RES_ICONS={
   wood:'<svg viewBox="0 0 20 20"><rect x="3" y="8" width="14" height="5" rx="2.5" fill="#8a6136"/><circle cx="17" cy="10.5" r="2.5" fill="#c89a62"/><circle cx="17" cy="10.5" r="1.2" fill="#8a6136"/></svg>',
   food:'<svg viewBox="0 0 20 20"><ellipse cx="10" cy="12" rx="6" ry="5" fill="#b8452f"/><rect x="9" y="4" width="2" height="4" rx="1" fill="#6d8a3a"/></svg>',
@@ -50,6 +50,14 @@ function init(){
   el.hint=q('hint'); el.toast=q('toast'); el.banner=q('agebanner');
   el.over=q('overlay'); el.help=q('help');
   q('btn-help').onclick=()=>toggleHelp();
+  el.idle=q('btn-idle');
+  el.idle.onclick=()=>Input.cycleIdle();
+  el.chat=q('chatwrap'); el.chatIn=q('chatinput');
+  el.chatIn.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Escape'){ closeChat(); }
+    if(e.key==='Enter'){ const v=el.chatIn.value.trim(); closeChat(); if(v) command(v); }
+  });
   q('btn-mute').onclick=()=>Sfx.toggleMute();
   q('btn-restart').onclick=()=>Main.restart();
   q('help-close').onclick=()=>toggleHelp();
@@ -126,12 +134,26 @@ function drawMinimap(){
 // ---------- selection / command card ----------
 function onSelection(ids){
   curSel=ids;
+  if(ids.length) curRes=null;
   refreshPanel();
+}
+function showResource(gx,gy){
+  curRes=gx===null?null:{x:gx,y:gy};
+  refreshResource();
+}
+function refreshResource(){
+  if(!curRes) { if(!curSel.length){el.panel.innerHTML='<div class="dim">Nothing selected</div>';el.card.innerHTML='';} return; }
+  const r=Sim.resAt(curRes.x,curRes.y);
+  if(!r){ curRes=null; refreshPanel(); return; }
+  el.panel.innerHTML='<div class="selname">'+r.name+'</div>'+
+    '<div class="hpline">'+Math.ceil(r.amount)+' '+r.kind+' remaining</div>'+
+    '<div class="dim">Right-click with villagers selected to gather</div>';
+  el.card.innerHTML='';
 }
 function refreshPanel(){
   const ids=curSel.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
   const p=Sim.st.players[0];
-  if(!ids.length){ el.panel.innerHTML='<div class="dim">Nothing selected</div>'; el.card.innerHTML=''; return; }
+  if(!ids.length){ if(curRes){refreshResource();return;} el.panel.innerHTML='<div class="dim">Nothing selected</div>'; el.card.innerHTML=''; return; }
   const first=Sim.ent(ids[0]);
   if(ids.length===1){
     const e=first;
@@ -250,12 +272,29 @@ function onEvent(e){
     case 'spawn': refreshPanel(); break;
   }
 }
+// ---------- chat console / cheats ----------
+function openChat(){ chatOpen=true; el.chat.style.display='block'; el.chatIn.value=''; setTimeout(()=>el.chatIn.focus(),0); }
+function closeChat(){ chatOpen=false; el.chat.style.display='none'; el.chatIn.blur(); }
+function command(v){
+  const c=v.toLowerCase();
+  if(c==='show me the money'){ Sim.cheatMoney(0); toast('+10,000 of each resource'); Sfx.play('built'); }
+  else if(c==='reveal'||c==='marco polo'){ Sim.cheatReveal(); UI2mm(); toast('Map revealed'); }
+  else if(c==='warp speed'){ toast(Sim.cheatWarp()?'Warp speed: builds and training 20× faster':'Warp speed off'); }
+  else if(c==='iddqd'){ const ids=Input.selection; if(!ids.length){toast('Select units first');return;}
+    toast(Sim.cheatGod(ids)?'God mode ON for selected units':'God mode off'); }
+  else if(c==='moo'){ Sim.cheatMoo(0); toast('The herd answers the call.'); Sfx.play('train'); }
+  else toast('“'+v+'” — no one hears you. (Try a cheat code.)');
+}
+function UI2mm(){ mmT=0; }
 let mmT=0, topT=0;
 function tick(dt){
+  if(curRes){ (tick._r=(tick._r||0)+dt)>0.5&&(tick._r=0,refreshResource()); }
+  el.idle.textContent='Idle: '+Sim.idleVillagers(0).length;
   topT-=dt; if(topT<=0){topT=0.25;refreshTop();}
   mmT-=dt; if(mmT<=0){mmT=0.34;drawMinimap();}
   // live queue progress refresh when a building is selected
   if(curSel.length===1){ const e=Sim.ent(curSel[0]); if(e&&e.kind==='bldg'&&(e.queue.length||!e.done)){ if((tick._q=(tick._q||0)+dt)>0.5){tick._q=0;refreshPanel();} } }
 }
-return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase };
+return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
+         showResource, openChat, closeChat, get chatOpen(){return chatOpen;} };
 })();

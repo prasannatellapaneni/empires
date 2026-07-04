@@ -78,6 +78,10 @@ function buildMats(){
     gold:makeMat({map:goldT}), berry:makeMat({map:berryT}), crop:makeMat({map:crop}),
     skin:makeMat({color:0xd9a878}), dark:makeMat({color:0x3a3126}),
     metal:new THREE.MeshStandardMaterial({color:0xb9bec6,roughness:0.35,metalness:0.75}),
+    cow:(()=>{const g2=ctx2d(64,64);noisyFill(g2,64,64,'#e8e2d4',[210,205,195],150);
+      for(let i=0;i<7;i++){g2.fillStyle='#3a3126';g2.beginPath();
+        g2.ellipse(Math.random()*64,Math.random()*64,6+Math.random()*8,5+Math.random()*6,Math.random()*3,0,7);g2.fill();}
+      return makeMat({map:tex(g2,1)});})(),
     wood:makeMat({color:0x6d4f2c}),
     horseA:makeMat({color:0x6e4a2a}), horseB:makeMat({color:0x4a361f}),
     team:[makeMat({color:TEAM[0]}),makeMat({color:TEAM[1]})],
@@ -256,6 +260,20 @@ function makeUnitMesh(u){
     const lance=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.03,1.1,5),MATS.wood);
     lance.position.set(0,-0.4,0.2); lance.rotation.x=1.2; rider.parts.rA.add(lance);
     h={g,parts:{lA:rider.parts.lA,rA:rider.parts.rA,lL:legs[0],rL:legs[1],l3:legs[2],l4:legs[3]}};
+  } else if(u.ut==='warcow'){
+    const g=new THREE.Group();
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(0.28,0.3,0.9,8),MATS.cow);
+    body.rotation.z=Math.PI/2; body.rotation.y=Math.PI/2; body.position.y=0.55; body.castShadow=true; g.add(body);
+    const hd=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.22,0.3),MATS.cow);
+    hd.position.set(0,0.72,0.55); g.add(hd);
+    for(const sx of [-1,1]){ const horn=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.22,5),MATS.metal);
+      horn.position.set(sx*0.15,0.88,0.55); horn.rotation.z=sx*-0.7; g.add(horn); }
+    const legs=[];
+    for(let i=0;i<4;i++){ const L=limb(MATS.cow,0.08,0.4);
+      L.position.set(i<2?-0.16:0.16,0.42,i%2?0.28:-0.28); g.add(L); legs.push(L); }
+    const cape=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.06,0.6),MATS.team[o]);
+    cape.position.y=0.74; g.add(cape);
+    h={g,parts:{lL:legs[0],rL:legs[1],l3:legs[2],l4:legs[3]}};
   } else { // catapult
     const g=new THREE.Group();
     const base=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.16,1.1),MATS.plank);
@@ -515,6 +533,16 @@ function updateRings(){
     m.position.set(e.x,hAt(e.x,e.y)+0.08,e.y);
   }
 }
+let tileRing=null;
+function ringTile(gx,gy){
+  if(tileRing){scene.remove(tileRing);tileRing=null;}
+  if(gx===null) return;
+  tileRing=new THREE.Mesh(new THREE.RingGeometry(0.55,0.68,20),
+    new THREE.MeshBasicMaterial({color:0xd9a520,side:THREE.DoubleSide,transparent:true,opacity:0.95,depthWrite:false}));
+  tileRing.rotation.x=-Math.PI/2; tileRing.renderOrder=4;
+  tileRing.position.set(gx+0.5,hAt(gx+0.5,gy+0.5)+0.09,gy+0.5);
+  scene.add(tileRing);
+}
 let ghostMat;
 function showGhost(bt,gx,gy,ok){
   hideGhost();
@@ -630,7 +658,7 @@ function update(dt){
 }
 
 return { init, update, onEvent, pan, applyCam, cam, screenToGround, pickEntity, worldToScreen,
-         setSelection, showGhost, hideGhost, hAt, TEAM,
+         setSelection, showGhost, hideGhost, ringTile, hAt, TEAM,
          zoom(d){cam.dist*=d;applyCam();}, rotate(d){cam.yaw+=d;applyCam();},
          center(x,y){cam.tx=x;cam.tz=y;applyCam();} };
 })();

@@ -2,6 +2,7 @@
 /* Empires 3D — input: mouse, keyboard, touch. */
 const Input = (() => {
 let dom, selection=[], placing=null, boxEl;
+let selRes=null, groups={}, lastDigit=-1, lastDigitT=0, idleIdx=0;
 let mouse={x:0,y:0,nx:0,ny:0,down:false,downX:0,downY:0,boxing:false,mmb:false};
 const keys={};
 let edgePan=true;
@@ -14,9 +15,15 @@ function nrm(e){
 }
 function setSelection(ids){
   selection=ids.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
+  if(selection.length) clearResSel();
   Render.setSelection(selection);
   UI.onSelection(selection);
   if(selection.length) Sfx.play('select');
+}
+function clearResSel(){ if(selRes){selRes=null;Render.ringTile(null);UI.showResource(null);} }
+function selectRes(gx,gy){
+  selection=[]; Render.setSelection([]); UI.onSelection([]);
+  selRes={x:gx,y:gy}; Render.ringTile(gx,gy); UI.showResource(gx,gy); Sfx.play('select');
 }
 function mySelectedUnits(){ return selection.filter(id=>{const e=Sim.ent(id);return e&&e.kind==='unit'&&e.owner===0;}); }
 function myVillagers(){ return selection.filter(id=>{const e=Sim.ent(id);return e&&e.ut==='villager'&&e.owner===0;}); }
@@ -76,7 +83,11 @@ function selectAt(nx,ny,additive){
     if(e&&e.owner===0){ setSelection(additive?[...new Set([...selection,eid])]:[eid]); return; }
     if(e){ setSelection([eid]); return; } // allow inspecting enemy
   }
-  if(!additive) setSelection([]);
+  if(!additive){
+    const g=Render.screenToGround(nx,ny);
+    if(g&&Sim.resAt(g.x|0,g.y|0)){ selectRes(g.x|0,g.y|0); return; }
+    setSelection([]); clearResSel();
+  }
 }
 function boxSelect(x0,y0,x1,y1,additive){
   const r=dom.getBoundingClientRect();
@@ -147,8 +158,30 @@ function init(container){
     Render.zoom(e.deltaY>0?1.11:0.9);
   },{passive:false});
   window.addEventListener('keydown',e=>{
+    if(UI.chatOpen){ if(e.key==='Escape')UI.closeChat(); return; }
+    if(e.key==='Enter'){ UI.openChat(); e.preventDefault(); return; }
     keys[e.key.toLowerCase()]=true;
-    if(e.key==='Escape'){ if(placing)cancelPlace(); else setSelection([]); }
+    if(e.key>='1'&&e.key<='9'){
+      const d=e.key;
+      if(e.shiftKey){ // assign group
+        if(selection.length){ groups[d]=selection.slice(); UI.toast('Group '+d+' assigned ('+selection.length+' units)'); }
+      } else {
+        const ids=(groups[d]||[]).filter(id=>{const en=Sim.ent(id);return en&&!en.dead;});
+        groups[d]=ids;
+        if(ids.length){
+          const now=performance.now();
+          setSelection(ids);
+          if(lastDigit===d&&now-lastDigitT<380){
+            let cx=0,cy=0; for(const id of ids){const en=Sim.ent(id);cx+=en.x;cy+=en.y;}
+            Render.center(cx/ids.length,cy/ids.length);
+          }
+          lastDigit=d; lastDigitT=now;
+        }
+      }
+      return;
+    }
+    if(e.key==='.'){ cycleIdle(); return; }
+    if(e.key==='Escape'){ if(placing)cancelPlace(); else {setSelection([]);clearResSel();} }
     if(e.key.toLowerCase()==='h') UI.toggleHelp();
     if(e.key.toLowerCase()==='m') Sfx.toggleMute();
     if(e.key.toLowerCase()==='s'&&e.shiftKey===false&&selection.length){ Sim.cmdStop(mySelectedUnits()); }
@@ -203,7 +236,17 @@ function init(container){
   },{passive:false});
   function updateGhostAt(p){ mouse.nx=p.nx;mouse.ny=p.ny;updateGhost(); }
 }
+function cycleIdle(){
+  const ids=Sim.idleVillagers(0);
+  if(!ids.length){ UI.toast('No idle villagers'); return; }
+  idleIdx=(idleIdx+1)%ids.length;
+  const id=ids[idleIdx];
+  setSelection([id]);
+  const e=Sim.ent(id);
+  if(e) Render.center(e.x,e.y);
+}
 function tick(dt){
+  if(selRes&&!Sim.resAt(selRes.x,selRes.y)) clearResSel();
   const sp=dt*22*(Render.cam.dist/30);
   if(keys['w']||keys['arrowup']) Render.pan(0,-sp);
   if(keys['arrowdown']||(keys['s']&&!selection.length)) Render.pan(0,sp);
@@ -227,6 +270,6 @@ function tick(dt){
   const alive=selection.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
   if(alive.length!==selection.length) setSelection(alive);
 }
-return { init, tick, startPlace, cancelPlace, setSelection,
+return { init, tick, startPlace, cancelPlace, setSelection, cycleIdle,
          get selection(){return selection;}, mySelectedUnits, myVillagers };
 })();

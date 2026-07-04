@@ -24,9 +24,11 @@
 <div id="toast"></div>
 <div id="hint"></div>
 
-<div id="mmwrap"><canvas id="minimap" width="176" height="176"></canvas></div>
+<div id="mmwrap"><canvas id="minimap" width="176" height="176"></canvas><button id="btn-idle" title="Cycle idle villagers (.)">Idle: 0</button></div>
 <div id="selpanel"><div class="dim">Nothing selected</div></div>
 <div id="cmdcard"></div>
+
+<div id="chatwrap"><input id="chatinput" maxlength="60" placeholder="Speak, or whisper a cheat code…" autocomplete="off"></div>
 
 <div id="overlay">
   <div id="over-title"></div>
@@ -42,7 +44,9 @@
     <p><b>Economy:</b> villagers gather wood, food, and gold and return it to your Town Center. Train more villagers there. Build Farms when berries run out, and Houses to raise your population cap.</p>
     <p><b>Military:</b> build a Barracks for swordsmen. Advance ages at the Town Center to unlock the Archery Range, Stable, and Siege Workshop — and stronger troops.</p>
     <p><b>Camera:</b> W A S D / arrows / screen edge to pan, mouse wheel to zoom, Q and E to rotate, middle-drag to pan. Click the minimap to jump.</p>
-    <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · Esc cancel/deselect · H help · M sound.</p>
+    <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · <b>.</b> cycle idle villagers · Esc cancel/deselect · H help · M sound.</p>
+<p><b>Groups:</b> Shift+1–9 assigns selected units to a group, 1–9 recalls it, double-tap the digit to jump the camera there.</p>
+<p><b>Chat:</b> press Enter to open the chat line. Old soldiers speak of strange words with strange powers…</p>
     <p><b>Touch:</b> tap to select, drag to pan, pinch to zoom, long-press to order.</p>
     <button id="help-close">Close</button>
   </div>

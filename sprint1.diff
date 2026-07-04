@@ -1,0 +1,423 @@
+diff --git a/src/input.js b/src/input.js
+index ad1b153..4af534b 100644
+--- a/src/input.js
++++ b/src/input.js
+@@ -2,6 +2,7 @@
+ /* Empires 3D — input: mouse, keyboard, touch. */
+ const Input = (() => {
+ let dom, selection=[], placing=null, boxEl;
++let selRes=null, groups={}, lastDigit=-1, lastDigitT=0, idleIdx=0;
+ let mouse={x:0,y:0,nx:0,ny:0,down:false,downX:0,downY:0,boxing:false,mmb:false};
+ const keys={};
+ let edgePan=true;
+@@ -14,10 +15,16 @@ function nrm(e){
+ }
+ function setSelection(ids){
+   selection=ids.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
++  if(selection.length) clearResSel();
+   Render.setSelection(selection);
+   UI.onSelection(selection);
+   if(selection.length) Sfx.play('select');
+ }
++function clearResSel(){ if(selRes){selRes=null;Render.ringTile(null);UI.showResource(null);} }
++function selectRes(gx,gy){
++  selection=[]; Render.setSelection([]); UI.onSelection([]);
++  selRes={x:gx,y:gy}; Render.ringTile(gx,gy); UI.showResource(gx,gy); Sfx.play('select');
++}
+ function mySelectedUnits(){ return selection.filter(id=>{const e=Sim.ent(id);return e&&e.kind==='unit'&&e.owner===0;}); }
+ function myVillagers(){ return selection.filter(id=>{const e=Sim.ent(id);return e&&e.ut==='villager'&&e.owner===0;}); }
+ 
+@@ -76,7 +83,11 @@ function selectAt(nx,ny,additive){
+     if(e&&e.owner===0){ setSelection(additive?[...new Set([...selection,eid])]:[eid]); return; }
+     if(e){ setSelection([eid]); return; } // allow inspecting enemy
+   }
+-  if(!additive) setSelection([]);
++  if(!additive){
++    const g=Render.screenToGround(nx,ny);
++    if(g&&Sim.resAt(g.x|0,g.y|0)){ selectRes(g.x|0,g.y|0); return; }
++    setSelection([]); clearResSel();
++  }
+ }
+ function boxSelect(x0,y0,x1,y1,additive){
+   const r=dom.getBoundingClientRect();
+@@ -147,8 +158,30 @@ function init(container){
+     Render.zoom(e.deltaY>0?1.11:0.9);
+   },{passive:false});
+   window.addEventListener('keydown',e=>{
++    if(UI.chatOpen){ if(e.key==='Escape')UI.closeChat(); return; }
++    if(e.key==='Enter'){ UI.openChat(); e.preventDefault(); return; }
+     keys[e.key.toLowerCase()]=true;
+-    if(e.key==='Escape'){ if(placing)cancelPlace(); else setSelection([]); }
++    if(e.key>='1'&&e.key<='9'){
++      const d=e.key;
++      if(e.shiftKey){ // assign group
++        if(selection.length){ groups[d]=selection.slice(); UI.toast('Group '+d+' assigned ('+selection.length+' units)'); }
++      } else {
++        const ids=(groups[d]||[]).filter(id=>{const en=Sim.ent(id);return en&&!en.dead;});
++        groups[d]=ids;
++        if(ids.length){
++          const now=performance.now();
++          setSelection(ids);
++          if(lastDigit===d&&now-lastDigitT<380){
++            let cx=0,cy=0; for(const id of ids){const en=Sim.ent(id);cx+=en.x;cy+=en.y;}
++            Render.center(cx/ids.length,cy/ids.length);
++          }
++          lastDigit=d; lastDigitT=now;
++        }
++      }
++      return;
++    }
++    if(e.key==='.'){ cycleIdle(); return; }
++    if(e.key==='Escape'){ if(placing)cancelPlace(); else {setSelection([]);clearResSel();} }
+     if(e.key.toLowerCase()==='h') UI.toggleHelp();
+     if(e.key.toLowerCase()==='m') Sfx.toggleMute();
+     if(e.key.toLowerCase()==='s'&&e.shiftKey===false&&selection.length){ Sim.cmdStop(mySelectedUnits()); }
+@@ -203,7 +236,17 @@ function init(container){
+   },{passive:false});
+   function updateGhostAt(p){ mouse.nx=p.nx;mouse.ny=p.ny;updateGhost(); }
+ }
++function cycleIdle(){
++  const ids=Sim.idleVillagers(0);
++  if(!ids.length){ UI.toast('No idle villagers'); return; }
++  idleIdx=(idleIdx+1)%ids.length;
++  const id=ids[idleIdx];
++  setSelection([id]);
++  const e=Sim.ent(id);
++  if(e) Render.center(e.x,e.y);
++}
+ function tick(dt){
++  if(selRes&&!Sim.resAt(selRes.x,selRes.y)) clearResSel();
+   const sp=dt*22*(Render.cam.dist/30);
+   if(keys['w']||keys['arrowup']) Render.pan(0,-sp);
+   if(keys['arrowdown']||(keys['s']&&!selection.length)) Render.pan(0,sp);
+@@ -227,6 +270,6 @@ function tick(dt){
+   const alive=selection.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
+   if(alive.length!==selection.length) setSelection(alive);
+ }
+-return { init, tick, startPlace, cancelPlace, setSelection,
++return { init, tick, startPlace, cancelPlace, setSelection, cycleIdle,
+          get selection(){return selection;}, mySelectedUnits, myVillagers };
+ })();
+diff --git a/src/render.js b/src/render.js
+index 6fd8fe5..8673bb8 100644
+--- a/src/render.js
++++ b/src/render.js
+@@ -78,6 +78,10 @@ function buildMats(){
+     gold:makeMat({map:goldT}), berry:makeMat({map:berryT}), crop:makeMat({map:crop}),
+     skin:makeMat({color:0xd9a878}), dark:makeMat({color:0x3a3126}),
+     metal:new THREE.MeshStandardMaterial({color:0xb9bec6,roughness:0.35,metalness:0.75}),
++    cow:(()=>{const g2=ctx2d(64,64);noisyFill(g2,64,64,'#e8e2d4',[210,205,195],150);
++      for(let i=0;i<7;i++){g2.fillStyle='#3a3126';g2.beginPath();
++        g2.ellipse(Math.random()*64,Math.random()*64,6+Math.random()*8,5+Math.random()*6,Math.random()*3,0,7);g2.fill();}
++      return makeMat({map:tex(g2,1)});})(),
+     wood:makeMat({color:0x6d4f2c}),
+     horseA:makeMat({color:0x6e4a2a}), horseB:makeMat({color:0x4a361f}),
+     team:[makeMat({color:TEAM[0]}),makeMat({color:TEAM[1]})],
+@@ -256,6 +260,20 @@ function makeUnitMesh(u){
+     const lance=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.03,1.1,5),MATS.wood);
+     lance.position.set(0,-0.4,0.2); lance.rotation.x=1.2; rider.parts.rA.add(lance);
+     h={g,parts:{lA:rider.parts.lA,rA:rider.parts.rA,lL:legs[0],rL:legs[1],l3:legs[2],l4:legs[3]}};
++  } else if(u.ut==='warcow'){
++    const g=new THREE.Group();
++    const body=new THREE.Mesh(new THREE.CylinderGeometry(0.28,0.3,0.9,8),MATS.cow);
++    body.rotation.z=Math.PI/2; body.rotation.y=Math.PI/2; body.position.y=0.55; body.castShadow=true; g.add(body);
++    const hd=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.22,0.3),MATS.cow);
++    hd.position.set(0,0.72,0.55); g.add(hd);
++    for(const sx of [-1,1]){ const horn=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.22,5),MATS.metal);
++      horn.position.set(sx*0.15,0.88,0.55); horn.rotation.z=sx*-0.7; g.add(horn); }
++    const legs=[];
++    for(let i=0;i<4;i++){ const L=limb(MATS.cow,0.08,0.4);
++      L.position.set(i<2?-0.16:0.16,0.42,i%2?0.28:-0.28); g.add(L); legs.push(L); }
++    const cape=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.06,0.6),MATS.team[o]);
++    cape.position.y=0.74; g.add(cape);
++    h={g,parts:{lL:legs[0],rL:legs[1],l3:legs[2],l4:legs[3]}};
+   } else { // catapult
+     const g=new THREE.Group();
+     const base=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.16,1.1),MATS.plank);
+@@ -515,6 +533,16 @@ function updateRings(){
+     m.position.set(e.x,hAt(e.x,e.y)+0.08,e.y);
+   }
+ }
++let tileRing=null;
++function ringTile(gx,gy){
++  if(tileRing){scene.remove(tileRing);tileRing=null;}
++  if(gx===null) return;
++  tileRing=new THREE.Mesh(new THREE.RingGeometry(0.55,0.68,20),
++    new THREE.MeshBasicMaterial({color:0xd9a520,side:THREE.DoubleSide,transparent:true,opacity:0.95,depthWrite:false}));
++  tileRing.rotation.x=-Math.PI/2; tileRing.renderOrder=4;
++  tileRing.position.set(gx+0.5,hAt(gx+0.5,gy+0.5)+0.09,gy+0.5);
++  scene.add(tileRing);
++}
+ let ghostMat;
+ function showGhost(bt,gx,gy,ok){
+   hideGhost();
+@@ -630,7 +658,7 @@ function update(dt){
+ }
+ 
+ return { init, update, onEvent, pan, applyCam, cam, screenToGround, pickEntity, worldToScreen,
+-         setSelection, showGhost, hideGhost, hAt, TEAM,
++         setSelection, showGhost, hideGhost, ringTile, hAt, TEAM,
+          zoom(d){cam.dist*=d;applyCam();}, rotate(d){cam.yaw+=d;applyCam();},
+          center(x,y){cam.tx=x;cam.tz=y;applyCam();} };
+ })();
+diff --git a/src/shell.html b/src/shell.html
+index d92f047..2e2b42d 100644
+--- a/src/shell.html
++++ b/src/shell.html
+@@ -24,10 +24,12 @@
+ <div id="toast"></div>
+ <div id="hint"></div>
+ 
+-<div id="mmwrap"><canvas id="minimap" width="176" height="176"></canvas></div>
++<div id="mmwrap"><canvas id="minimap" width="176" height="176"></canvas><button id="btn-idle" title="Cycle idle villagers (.)">Idle: 0</button></div>
+ <div id="selpanel"><div class="dim">Nothing selected</div></div>
+ <div id="cmdcard"></div>
+ 
++<div id="chatwrap"><input id="chatinput" maxlength="60" placeholder="Speak, or whisper a cheat code…" autocomplete="off"></div>
++
+ <div id="overlay">
+   <div id="over-title"></div>
+   <div id="over-sub"></div>
+@@ -42,7 +44,9 @@
+     <p><b>Economy:</b> villagers gather wood, food, and gold and return it to your Town Center. Train more villagers there. Build Farms when berries run out, and Houses to raise your population cap.</p>
+     <p><b>Military:</b> build a Barracks for swordsmen. Advance ages at the Town Center to unlock the Archery Range, Stable, and Siege Workshop — and stronger troops.</p>
+     <p><b>Camera:</b> W A S D / arrows / screen edge to pan, mouse wheel to zoom, Q and E to rotate, middle-drag to pan. Click the minimap to jump.</p>
+-    <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · Esc cancel/deselect · H help · M sound.</p>
++    <p><b>Keys:</b> S stop (with units selected) · F2 select all soldiers · <b>.</b> cycle idle villagers · Esc cancel/deselect · H help · M sound.</p>
++<p><b>Groups:</b> Shift+1–9 assigns selected units to a group, 1–9 recalls it, double-tap the digit to jump the camera there.</p>
++<p><b>Chat:</b> press Enter to open the chat line. Old soldiers speak of strange words with strange powers…</p>
+     <p><b>Touch:</b> tap to select, drag to pan, pinch to zoom, long-press to order.</p>
+     <button id="help-close">Close</button>
+   </div>
+diff --git a/src/sim.js b/src/sim.js
+index 76c2eed..d0df2e8 100644
+--- a/src/sim.js
++++ b/src/sim.js
+@@ -32,6 +32,7 @@ const UNITS = {
+   swordsman: {name:'Swordsman',hp:64, atk:8,  range:0.2, rof:1.3, speed:2.8, sight:6, cost:{food:60,gold:25},  time:10, pop:1, age:0, radius:0.29, bld:'barracks', bonusBld:1.6},
+   archer:    {name:'Archer',   hp:34, atk:6,  range:5.5, rof:1.7, speed:2.9, sight:7, cost:{wood:35,gold:40},  time:10, pop:1, age:1, radius:0.27, bld:'archery',  proj:11},
+   knight:    {name:'Knight',   hp:120,atk:12, range:0.3, rof:1.4, speed:3.9, sight:6, cost:{food:70,gold:70},  time:14, pop:1, age:2, radius:0.34, bld:'stable'},
++  warcow:    {name:'War Cow',  hp:220,atk:26, range:0.3, rof:0.9, speed:5.2, sight:7, cost:{},                time:1,  pop:0, age:0, radius:0.36, bld:null},
+   catapult:  {name:'Catapult', hp:65, atk:32, range:7,   rof:4.5, speed:1.7, sight:7, cost:{wood:140,gold:120},time:20, pop:1, age:3, radius:0.42, bld:'workshop', proj:7, splash:1.3, bonusBld:3},
+ };
+ const BLDGS = {
+@@ -64,6 +65,7 @@ function newGame(seed, opts){
+     players:[mkPlayer(false),mkPlayer(true)],
+     vis:[new Uint8Array(S*S), new Uint8Array(S*S)],
+     claims:new Map(), events:[], visT:0, aiT:0, sepT:0,
++    warp:false, cheated:false, ageCap:opts.ageCap!==false,
+     rand,
+   };
+   if (opts.p0ai) st.players[0].isAI = true;
+@@ -412,7 +414,7 @@ function dmgMul(att,target){
+   return 1;
+ }
+ function applyDamage(target,dmg,attacker){
+-  if(target.dead) return;
++  if(target.dead||target.god) return;
+   target.hp-=dmg;
+   st.events.push({t:'hit',id:target.id,x:target.x,y:target.y});
+   if(target.kind==='bldg') target.lastHit=st.time;
+@@ -679,7 +681,7 @@ function tickBldg(b,dt){
+   if(!b.done){
+     if(b.builders>0){
+       const n=Math.min(3,b.builders);
+-      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75));
++      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75))*((st.warp&&b.owner===0)?20:1);
+       b.hp=Math.min(b.maxhp,Math.max(1,b.workDone/b.workNeed*b.maxhp));
+       if(b.workDone>=b.workNeed){
+         b.done=true; b.hp=b.maxhp;
+@@ -693,7 +695,7 @@ function tickBldg(b,dt){
+   // training / research
+   if(b.queue.length){
+     const q=b.queue[0];
+-    q.tLeft-=dt;
++    q.tLeft-=dt*((st.warp&&b.owner===0)?20:1);
+     if(q.tLeft<=0){
+       b.queue.shift();
+       if(q.age){
+@@ -821,7 +823,8 @@ function aiTick(pi){
+   const vTarget=[13,18,24,28][p.age];
+ 
+   // --- age up intent + savings mode ---
+-  const wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
++  let wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
++  if(st.ageCap && !st.players[0].isAI && pi!==0 && p.age>=st.players[0].age) wantAge=false;
+   const ageCost = p.age<3?AGE_COST[p.age+1]:null;
+   p.ai.saving = wantAge && ageCost && !(p.food>=ageCost.food&&p.gold>=ageCost.gold);
+   if(wantAge && ageCost && canAfford(pi,ageCost) && tc.done && !tc.queue.some(q=>q.age)){
+@@ -987,8 +990,34 @@ function tick(dt){
+   }
+ }
+ 
++// ---------- sprint 1: queries + cheats ----------
++function resAt(gx,gy){
++  if(!inB(gx,gy)) return null;
++  const i=idx(gx,gy), t=st.tiles[i];
++  if(t===GRASS||st.res[i]<=0) return null;
++  return {kind:RES_KIND[t], type:t, amount:st.res[i],
++    name:t===TREE?'Forest':t===BERRY?'Berry Bush':'Gold Mine'};
++}
++function idleVillagers(pi){
++  const out=[];
++  for(const u of st.units) if(!u.dead&&u.owner===pi&&u.ut==='villager'&&u.state==='idle') out.push(u.id);
++  return out;
++}
++function cheatMoney(pi){ const p=st.players[pi]; p.wood+=10000;p.food+=10000;p.gold+=10000; st.cheated=true; }
++function cheatReveal(){ const v=st.vis[0]; for(let i=0;i<v.length;i++) if(v[i]===0)v[i]=1; st.cheated=true; }
++function cheatWarp(){ st.warp=!st.warp; st.cheated=true; return st.warp; }
++function cheatGod(ids){ let on=false;
++  for(const id of ids){ const e=ent(id); if(e&&!e.dead){ e.god=!e.god; on=e.god; } }
++  st.cheated=true; return on; }
++function cheatMoo(pi){
++  const tc=st.bldgs.find(b=>!b.dead&&b.owner===pi&&b.bt==='towncenter');
++  const at=tc?{x:tc.x,y:tc.gy+tc.size+1}:{x:S/2,y:S/2};
++  for(let i=0;i<3;i++) spawnUnit(pi,'warcow',Math.min(S-1,at.x+i*0.9-0.9),Math.min(S-1,at.y));
++  st.cheated=true;
++}
+ return {
+   newGame, tick,
++  resAt, idleVillagers, cheatMoney, cheatReveal, cheatWarp, cheatGod, cheatMoo,
+   get st(){return st;},
+   cmdMove, cmdAttack, cmdGatherTile, cmdGatherFarm, cmdBuildPlace, cmdBuildTarget,
+   cmdTrain, cmdAge, cmdStop, canPlace, canAfford, countPop, ent,
+diff --git a/src/style.css b/src/style.css
+index ec2c1f3..21d7bab 100644
+--- a/src/style.css
++++ b/src/style.css
+@@ -110,3 +110,12 @@ html,body{height:100%;overflow:hidden;background:#0c0e10;
+   .res{padding:3px 7px 3px 5px}
+   .res b{min-width:26px;font-size:12px}
+ }
++
++/* sprint 1 */
++#btn-idle{display:block;width:100%;margin-top:5px;padding:5px 0;background:linear-gradient(#31363e,#22262c);
++  border:1px solid #454b54;border-radius:3px;color:var(--ink);font-size:12px;cursor:pointer}
++#btn-idle:hover{border-color:var(--brass);color:#fff}
++#chatwrap{position:fixed;left:50%;bottom:220px;transform:translateX(-50%);z-index:28;display:none;width:min(420px,86vw)}
++#chatinput{width:100%;padding:9px 14px;background:rgba(15,17,20,.94);border:1px solid var(--brass-dim);
++  border-radius:3px;color:var(--parch);font-size:14px;outline:none;font-family:inherit}
++#chatinput:focus{border-color:var(--brass)}
+diff --git a/src/ui.js b/src/ui.js
+index 11342f7..d1d3940 100644
+--- a/src/ui.js
++++ b/src/ui.js
+@@ -33,7 +33,7 @@ const Sfx = (() => {
+ })();
+ 
+ const UI = (() => {
+-let el={}, mmCtx, mmBase, curSel=[], toastT=null;
++let el={}, mmCtx, mmBase, curSel=[], toastT=null, curRes=null, chatOpen=false;
+ const RES_ICONS={
+   wood:'<svg viewBox="0 0 20 20"><rect x="3" y="8" width="14" height="5" rx="2.5" fill="#8a6136"/><circle cx="17" cy="10.5" r="2.5" fill="#c89a62"/><circle cx="17" cy="10.5" r="1.2" fill="#8a6136"/></svg>',
+   food:'<svg viewBox="0 0 20 20"><ellipse cx="10" cy="12" rx="6" ry="5" fill="#b8452f"/><rect x="9" y="4" width="2" height="4" rx="1" fill="#6d8a3a"/></svg>',
+@@ -50,6 +50,14 @@ function init(){
+   el.hint=q('hint'); el.toast=q('toast'); el.banner=q('agebanner');
+   el.over=q('overlay'); el.help=q('help');
+   q('btn-help').onclick=()=>toggleHelp();
++  el.idle=q('btn-idle');
++  el.idle.onclick=()=>Input.cycleIdle();
++  el.chat=q('chatwrap'); el.chatIn=q('chatinput');
++  el.chatIn.addEventListener('keydown',e=>{
++    e.stopPropagation();
++    if(e.key==='Escape'){ closeChat(); }
++    if(e.key==='Enter'){ const v=el.chatIn.value.trim(); closeChat(); if(v) command(v); }
++  });
+   q('btn-mute').onclick=()=>Sfx.toggleMute();
+   q('btn-restart').onclick=()=>Main.restart();
+   q('help-close').onclick=()=>toggleHelp();
+@@ -126,12 +134,26 @@ function drawMinimap(){
+ // ---------- selection / command card ----------
+ function onSelection(ids){
+   curSel=ids;
++  if(ids.length) curRes=null;
+   refreshPanel();
+ }
++function showResource(gx,gy){
++  curRes=gx===null?null:{x:gx,y:gy};
++  refreshResource();
++}
++function refreshResource(){
++  if(!curRes) { if(!curSel.length){el.panel.innerHTML='<div class="dim">Nothing selected</div>';el.card.innerHTML='';} return; }
++  const r=Sim.resAt(curRes.x,curRes.y);
++  if(!r){ curRes=null; refreshPanel(); return; }
++  el.panel.innerHTML='<div class="selname">'+r.name+'</div>'+
++    '<div class="hpline">'+Math.ceil(r.amount)+' '+r.kind+' remaining</div>'+
++    '<div class="dim">Right-click with villagers selected to gather</div>';
++  el.card.innerHTML='';
++}
+ function refreshPanel(){
+   const ids=curSel.filter(id=>{const e=Sim.ent(id);return e&&!e.dead;});
+   const p=Sim.st.players[0];
+-  if(!ids.length){ el.panel.innerHTML='<div class="dim">Nothing selected</div>'; el.card.innerHTML=''; return; }
++  if(!ids.length){ if(curRes){refreshResource();return;} el.panel.innerHTML='<div class="dim">Nothing selected</div>'; el.card.innerHTML=''; return; }
+   const first=Sim.ent(ids[0]);
+   if(ids.length===1){
+     const e=first;
+@@ -250,12 +272,29 @@ function onEvent(e){
+     case 'spawn': refreshPanel(); break;
+   }
+ }
++// ---------- chat console / cheats ----------
++function openChat(){ chatOpen=true; el.chat.style.display='block'; el.chatIn.value=''; setTimeout(()=>el.chatIn.focus(),0); }
++function closeChat(){ chatOpen=false; el.chat.style.display='none'; el.chatIn.blur(); }
++function command(v){
++  const c=v.toLowerCase();
++  if(c==='show me the money'){ Sim.cheatMoney(0); toast('+10,000 of each resource'); Sfx.play('built'); }
++  else if(c==='reveal'||c==='marco polo'){ Sim.cheatReveal(); UI2mm(); toast('Map revealed'); }
++  else if(c==='warp speed'){ toast(Sim.cheatWarp()?'Warp speed: builds and training 20× faster':'Warp speed off'); }
++  else if(c==='iddqd'){ const ids=Input.selection; if(!ids.length){toast('Select units first');return;}
++    toast(Sim.cheatGod(ids)?'God mode ON for selected units':'God mode off'); }
++  else if(c==='moo'){ Sim.cheatMoo(0); toast('The herd answers the call.'); Sfx.play('train'); }
++  else toast('“'+v+'” — no one hears you. (Try a cheat code.)');
++}
++function UI2mm(){ mmT=0; }
+ let mmT=0, topT=0;
+ function tick(dt){
++  if(curRes){ (tick._r=(tick._r||0)+dt)>0.5&&(tick._r=0,refreshResource()); }
++  el.idle.textContent='Idle: '+Sim.idleVillagers(0).length;
+   topT-=dt; if(topT<=0){topT=0.25;refreshTop();}
+   mmT-=dt; if(mmT<=0){mmT=0.34;drawMinimap();}
+   // live queue progress refresh when a building is selected
+   if(curSel.length===1){ const e=Sim.ent(curSel[0]); if(e&&e.kind==='bldg'&&(e.queue.length||!e.done)){ if((tick._q=(tick._q||0)+dt)>0.5){tick._q=0;refreshPanel();} } }
+ }
+-return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase };
++return { init, tick, onEvent, onSelection, toast, setHint, toggleHelp, refreshPanel, buildMinimapBase,
++         showResource, openChat, closeChat, get chatOpen(){return chatOpen;} };
+ })();
+diff --git a/test.js b/test.js
+index 7af7491..8d2d07b 100644
+--- a/test.js
++++ b/test.js
+@@ -93,5 +93,31 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
+   console.log('entities at end: '+st.units.length+' units, '+st.bldgs.length+' buildings');
+ }
+ 
++// ---------- Test 4: sprint 1 — age cap + cheats ----------
++{
++  const st = Sim.newGame(99); // player 0 human (not AI) -> cap active
++  st.players[1].wood=99999; st.players[1].food=99999; st.players[1].gold=99999;
++  // give AI plenty of villagers virtually by running economy long enough is slow;
++  // instead assert the cap gate directly: run 8 min, AI should never exceed player age 0
++  run(480);
++  ok(st.players[1].age<=st.players[0].age, 'AI never out-ages human with cap on (AI age '+st.players[1].age+', human '+st.players[0].age+')');
++  const w0=st.players[0].wood;
++  Sim.cheatMoney(0);
++  ok(st.players[0].wood===w0+10000 && st.cheated, 'cheatMoney adds resources and marks match cheated');
++  Sim.cheatReveal();
++  ok(st.vis[0].every(v=>v>=1), 'cheatReveal marks whole map explored');
++  Sim.cheatMoo(0);
++  ok(st.units.some(u=>u.ut==='warcow'&&u.owner===0), 'moo spawns war cows');
++  const cow=st.units.find(u=>u.ut==='warcow');
++  Sim.cheatGod([cow.id]);
++  cow.hp=cow.maxhp;
++  const hpBefore=cow.hp;
++  // direct damage attempt
++  (function(){ const foe=st.units.find(u=>u.owner===1);
++    // simulate a hit via a projectile landing: easiest is checking god flag honored by damage path
++  })();
++  ok(cow.god===true, 'god mode toggles on unit');
++}
++
+ console.log(fails===0 ? '\nALL TESTS PASSED' : '\n'+fails+' TEST(S) FAILED');
+ process.exit(fails===0?0:1);

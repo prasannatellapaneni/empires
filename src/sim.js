@@ -32,6 +32,7 @@ const UNITS = {
   swordsman: {name:'Swordsman',hp:64, atk:8,  range:0.2, rof:1.3, speed:2.8, sight:6, cost:{food:60,gold:25},  time:10, pop:1, age:0, radius:0.29, bld:'barracks', bonusBld:1.6},
   archer:    {name:'Archer',   hp:34, atk:6,  range:5.5, rof:1.7, speed:2.9, sight:7, cost:{wood:35,gold:40},  time:10, pop:1, age:1, radius:0.27, bld:'archery',  proj:11},
   knight:    {name:'Knight',   hp:120,atk:12, range:0.3, rof:1.4, speed:3.9, sight:6, cost:{food:70,gold:70},  time:14, pop:1, age:2, radius:0.34, bld:'stable'},
+  warcow:    {name:'War Cow',  hp:220,atk:26, range:0.3, rof:0.9, speed:5.2, sight:7, cost:{},                time:1,  pop:0, age:0, radius:0.36, bld:null},
   catapult:  {name:'Catapult', hp:65, atk:32, range:7,   rof:4.5, speed:1.7, sight:7, cost:{wood:140,gold:120},time:20, pop:1, age:3, radius:0.42, bld:'workshop', proj:7, splash:1.3, bonusBld:3},
 };
 const BLDGS = {
@@ -64,6 +65,7 @@ function newGame(seed, opts){
     players:[mkPlayer(false),mkPlayer(true)],
     vis:[new Uint8Array(S*S), new Uint8Array(S*S)],
     claims:new Map(), events:[], visT:0, aiT:0, sepT:0,
+    warp:false, cheated:false, ageCap:opts.ageCap!==false,
     rand,
   };
   if (opts.p0ai) st.players[0].isAI = true;
@@ -412,7 +414,7 @@ function dmgMul(att,target){
   return 1;
 }
 function applyDamage(target,dmg,attacker){
-  if(target.dead) return;
+  if(target.dead||target.god) return;
   target.hp-=dmg;
   st.events.push({t:'hit',id:target.id,x:target.x,y:target.y});
   if(target.kind==='bldg') target.lastHit=st.time;
@@ -679,7 +681,7 @@ function tickBldg(b,dt){
   if(!b.done){
     if(b.builders>0){
       const n=Math.min(3,b.builders);
-      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75));
+      b.workDone+=dt*n*(n===1?1:(n===2?0.85:0.75))*((st.warp&&b.owner===0)?20:1);
       b.hp=Math.min(b.maxhp,Math.max(1,b.workDone/b.workNeed*b.maxhp));
       if(b.workDone>=b.workNeed){
         b.done=true; b.hp=b.maxhp;
@@ -693,7 +695,7 @@ function tickBldg(b,dt){
   // training / research
   if(b.queue.length){
     const q=b.queue[0];
-    q.tLeft-=dt;
+    q.tLeft-=dt*((st.warp&&b.owner===0)?20:1);
     if(q.tLeft<=0){
       b.queue.shift();
       if(q.age){
@@ -821,7 +823,8 @@ function aiTick(pi){
   const vTarget=[13,18,24,28][p.age];
 
   // --- age up intent + savings mode ---
-  const wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
+  let wantAge = p.age<3 && vills.length>=[12,17,22,99][p.age];
+  if(st.ageCap && !st.players[0].isAI && pi!==0 && p.age>=st.players[0].age) wantAge=false;
   const ageCost = p.age<3?AGE_COST[p.age+1]:null;
   p.ai.saving = wantAge && ageCost && !(p.food>=ageCost.food&&p.gold>=ageCost.gold);
   if(wantAge && ageCost && canAfford(pi,ageCost) && tc.done && !tc.queue.some(q=>q.age)){
@@ -987,8 +990,34 @@ function tick(dt){
   }
 }
 
+// ---------- sprint 1: queries + cheats ----------
+function resAt(gx,gy){
+  if(!inB(gx,gy)) return null;
+  const i=idx(gx,gy), t=st.tiles[i];
+  if(t===GRASS||st.res[i]<=0) return null;
+  return {kind:RES_KIND[t], type:t, amount:st.res[i],
+    name:t===TREE?'Forest':t===BERRY?'Berry Bush':'Gold Mine'};
+}
+function idleVillagers(pi){
+  const out=[];
+  for(const u of st.units) if(!u.dead&&u.owner===pi&&u.ut==='villager'&&u.state==='idle') out.push(u.id);
+  return out;
+}
+function cheatMoney(pi){ const p=st.players[pi]; p.wood+=10000;p.food+=10000;p.gold+=10000; st.cheated=true; }
+function cheatReveal(){ const v=st.vis[0]; for(let i=0;i<v.length;i++) if(v[i]===0)v[i]=1; st.cheated=true; }
+function cheatWarp(){ st.warp=!st.warp; st.cheated=true; return st.warp; }
+function cheatGod(ids){ let on=false;
+  for(const id of ids){ const e=ent(id); if(e&&!e.dead){ e.god=!e.god; on=e.god; } }
+  st.cheated=true; return on; }
+function cheatMoo(pi){
+  const tc=st.bldgs.find(b=>!b.dead&&b.owner===pi&&b.bt==='towncenter');
+  const at=tc?{x:tc.x,y:tc.gy+tc.size+1}:{x:S/2,y:S/2};
+  for(let i=0;i<3;i++) spawnUnit(pi,'warcow',Math.min(S-1,at.x+i*0.9-0.9),Math.min(S-1,at.y));
+  st.cheated=true;
+}
 return {
   newGame, tick,
+  resAt, idleVillagers, cheatMoney, cheatReveal, cheatWarp, cheatGod, cheatMoo,
   get st(){return st;},
   cmdMove, cmdAttack, cmdGatherTile, cmdGatherFarm, cmdBuildPlace, cmdBuildTarget,
   cmdTrain, cmdAge, cmdStop, canPlace, canAfford, countPop, ent,

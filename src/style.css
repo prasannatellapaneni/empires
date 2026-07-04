@@ -110,3 +110,12 @@ html,body{height:100%;overflow:hidden;background:#0c0e10;
   .res{padding:3px 7px 3px 5px}
   .res b{min-width:26px;font-size:12px}
 }
+
+/* sprint 1 */
+#btn-idle{display:block;width:100%;margin-top:5px;padding:5px 0;background:linear-gradient(#31363e,#22262c);
+  border:1px solid #454b54;border-radius:3px;color:var(--ink);font-size:12px;cursor:pointer}
+#btn-idle:hover{border-color:var(--brass);color:#fff}
+#chatwrap{position:fixed;left:50%;bottom:220px;transform:translateX(-50%);z-index:28;display:none;width:min(420px,86vw)}
+#chatinput{width:100%;padding:9px 14px;background:rgba(15,17,20,.94);border:1px solid var(--brass-dim);
+  border-radius:3px;color:var(--parch);font-size:14px;outline:none;font-family:inherit}
+#chatinput:focus{border-color:var(--brass)}

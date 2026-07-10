@@ -238,6 +238,14 @@ function makeUnitMesh(u){
     sw.position.set(0,-0.32,0.06); h.parts.rA.add(sw);
     const sh=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.04,10),MATS.teamDark[o]);
     sh.rotation.z=Math.PI/2; sh.position.set(-0.05,-0.2,0); h.parts.lA.add(sh);
+  } else if(u.ut==='spearman'){
+    h=humanoid(o,MATS.teamDark[o],{helmet:false,hat:false});
+    const cap=new THREE.Mesh(new THREE.SphereGeometry(0.135,8,6),MATS.wood);
+    cap.scale.y=0.7; cap.position.y=0.9; h.g.add(cap);
+    const spear=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,1.5,5),MATS.wood);
+    spear.position.set(0,-0.25,0.1); spear.rotation.x=0.25; h.parts.rA.add(spear);
+    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.05,0.16,5),MATS.metal);
+    tip.position.set(0,0.55,0.29); tip.rotation.x=0.25; h.parts.rA.add(tip);
   } else if(u.ut==='archer'){
     h=humanoid(o,MATS.team[o],{hood:true});
     const bow=new THREE.Mesh(new THREE.TorusGeometry(0.24,0.02,5,10,Math.PI),MATS.wood);
@@ -367,6 +375,12 @@ function makeBldgMesh(b){
     const roof=add(gable(1.75,1.4,MATS.plank)); roof.position.y=1.1; roof.position.x=-0.2;
     const pile=add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.32,0),MATS.gold)); pile.position.set(0.75,0.25,0.3);
     const pile2=add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.24,0),MATS.gold)); pile2.position.set(0.7,0.2,-0.35);
+  } else if(b.bt==='blacksmith'){
+    const base=add(new THREE.Mesh(new THREE.BoxGeometry(1.7,0.95,1.5),MATS.stone)); base.position.y=0.47;
+    const roof=add(gable(1.85,1.6,MATS.plank)); roof.position.y=1.25;
+    const chim=add(new THREE.Mesh(new THREE.BoxGeometry(0.28,0.9,0.28),MATS.stone)); chim.position.set(0.55,1.45,-0.4);
+    const anvil=add(new THREE.Mesh(new THREE.BoxGeometry(0.3,0.22,0.16),MATS.metal)); anvil.position.set(0.8,0.35,0.55);
+    const block=add(new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.14,0.26,7),MATS.bark)); block.position.set(0.8,0.13,0.55);
   } else if(b.bt==='tower'){
     const base=add(new THREE.Mesh(new THREE.CylinderGeometry(0.72,0.86,2.7,9),MATS.stone)); base.position.y=1.35;
     const top=add(new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.4,9),MATS.stone)); top.position.y=2.9;

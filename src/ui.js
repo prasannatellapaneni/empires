@@ -40,7 +40,7 @@ const RES_ICONS={
   gold:'<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5" fill="#d9a520"/><circle cx="10" cy="10" r="4.5" fill="#f0c94a"/></svg>',
   pop:'<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3.4" fill="#cfd6dd"/><path d="M3 17 q7 -8 14 0 z" fill="#cfd6dd"/></svg>',
 };
-const BUILD_MENU=['house','farm','mill','lumbercamp','miningcamp','barracks','archery','stable','workshop','tower'];
+const BUILD_MENU=['house','farm','mill','lumbercamp','miningcamp','barracks','archery','stable','workshop','blacksmith','tower'];
 const PNAMES=['You','Red','Green','Yellow'];
 const PCOLORS=['#4d8bf0','#e05242','#4fb75a','#e0b84d'];
 const PCOLORS_U=['#8fc1ff','#ff8d7a','#8fe09a','#ffe08f'];
@@ -170,7 +170,7 @@ function refreshPanel(){
   const first=Sim.ent(ids[0]);
   if(ids.length===1){
     const e=first;
-    const name=e.kind==='unit'?Sim.UNITS[e.ut].name:Sim.BLDGS[e.bt].name;
+    const name=e.kind==='unit'?(e.dispName||Sim.UNITS[e.ut].name):Sim.BLDGS[e.bt].name;
     let html='<div class="selname">'+name+(e.owner!==0?' <span class="foe">(enemy)</span>':'')+'</div>';
     html+='<div class="hpline">'+Math.ceil(e.hp)+' / '+e.maxhp+' HP</div>';
     if(e.kind==='unit'&&e.ut==='villager'&&e.carry>0.5)
@@ -179,7 +179,7 @@ function refreshPanel(){
       html+='<div class="dim">Under construction — '+((e.workDone/e.workNeed*100)|0)+'%</div>';
     if(e.kind==='bldg'&&e.queue&&e.queue.length){
       const it=e.queue[0];
-      const nm=it.age?('Advancing to '+Sim.AGES[p.age+1]):Sim.UNITS[it.ut].name;
+      const nm=it.age?('Advancing to '+Sim.AGES[p.age+1]):it.tech?Sim.TECHS[it.tech].name:Sim.statFor(0,it.ut).name;
       html+='<div class="qline">'+nm+' <span class="qbar"><span style="width:'+(100-it.tLeft/it.tFull*100)+'%"></span></span>'+(e.queue.length>1?' +'+(e.queue.length-1):'')+'</div>';
     }
     el.panel.innerHTML=html;
@@ -230,6 +230,12 @@ function buildCard(ids,first){
       btn('Train '+ud.name, locked?Sim.AGES[ud.age]:costStr(ud.cost),
         ()=>{ if(Sim.cmdTrain(first.id,ut)) Sfx.play('train'); else Sfx.play('deny'); },
         locked, locked?'Requires '+Sim.AGES[ud.age]:'');
+    }
+    for(const tid of Sim.availTechs(first.id)){
+      const t=Sim.TECHS[tid];
+      btn(t.name, costStr(t.cost),
+        ()=>{ if(Sim.cmdResearch(first.id,tid)) Sfx.play('train'); else Sfx.play('deny'); },
+        !Sim.canAfford(0,t.cost), 'Research: '+t.name);
     }
     if(first.bt==='towncenter'&&p.age<3){
       const c=Sim.AGE_COST[p.age+1];
@@ -285,6 +291,7 @@ function onEvent(e){
     case 'age': if(e.pi===0){Sfx.play('age');ageBanner(e.age);toast('You have advanced to the '+Sim.AGES[e.age]+'!');}
       else toast(PNAMES[e.pi]+' has advanced to the '+Sim.AGES[e.age]+'.');
       refreshPanel(); break;
+    case 'tech': if(e.pi===0){ Sfx.play('built'); toast(e.name+' research complete.'); refreshPanel(); } break;
     case 'eliminated': if(e.pi!==0){ toast(PNAMES[e.pi]+' has been eliminated!'); Sfx.play('boom'); } break;
     case 'msg': if(e.pi===0&&e.msg==='needhouse') toast('Build more houses to raise your population cap.'); break;
     case 'gameover': gameOver(e.winner); break;

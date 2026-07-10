@@ -33,14 +33,52 @@ const CONFIG = {
 
   // hp, atk, range (tiles), rof (sec/attack), speed (tiles/s), sight,
   // cost, time (train sec), pop, age required, radius, bld (trainer),
-  // proj (projectile speed), splash, bonusBld (dmg multiplier vs buildings)
+  // proj (projectile speed), splash,
+  // cls: unit class (inf/arc/cav/siege/vil) · dmgType: melee/pierce/siege
+  // arm: [melee armor, pierce armor] (flat damage reduction; siege ignores armor)
+  // bonus: damage multipliers vs classes ('bldg' = buildings)
+  // line: upgrade tiers researched at the trainer (names + hp/atk per tier)
   UNITS: {
-    villager:  {name:'Villager', hp:32, atk:3,  range:0.2, rof:1.5, speed:2.7, sight:5, cost:{food:60},          time:9,  pop:1, age:0, radius:0.27, bld:'towncenter'},
-    swordsman: {name:'Swordsman',hp:64, atk:8,  range:0.2, rof:1.3, speed:2.8, sight:6, cost:{food:60,gold:25},  time:10, pop:1, age:0, radius:0.29, bld:'barracks', bonusBld:1.6},
-    archer:    {name:'Archer',   hp:34, atk:6,  range:5.5, rof:1.7, speed:2.9, sight:7, cost:{wood:35,gold:40},  time:10, pop:1, age:1, radius:0.27, bld:'archery',  proj:11},
-    knight:    {name:'Knight',   hp:120,atk:12, range:0.3, rof:1.4, speed:3.9, sight:6, cost:{food:70,gold:70},  time:14, pop:1, age:2, radius:0.34, bld:'stable'},
-    warcow:    {name:'War Cow',  hp:220,atk:26, range:0.3, rof:0.9, speed:5.2, sight:7, cost:{},                time:1,  pop:0, age:0, radius:0.36, bld:null},
-    catapult:  {name:'Catapult', hp:65, atk:32, range:7,   rof:4.5, speed:1.7, sight:7, cost:{wood:140,gold:120},time:20, pop:1, age:3, radius:0.42, bld:'workshop', proj:7, splash:1.3, bonusBld:3},
+    villager:  {name:'Villager', hp:32, atk:3,  range:0.2, rof:1.5, speed:2.7, sight:5, cost:{food:60},          time:9,  pop:1, age:0, radius:0.27, bld:'towncenter',
+                cls:'vil', dmgType:'melee', arm:[0,0]},
+    swordsman: {name:'Swordsman',hp:64, atk:8,  range:0.2, rof:1.3, speed:2.8, sight:6, cost:{food:60,gold:25},  time:10, pop:1, age:0, radius:0.29, bld:'barracks',
+                cls:'inf', dmgType:'melee', arm:[1,1], bonus:{bldg:1.6},
+                line:{names:['Swordsman','Longswordsman','Champion'], tiers:[{hp:64,atk:8},{hp:78,atk:10},{hp:92,atk:12}]}},
+    spearman:  {name:'Spearman', hp:50, atk:5,  range:0.25,rof:1.4, speed:2.8, sight:6, cost:{food:45,wood:25},  time:9,  pop:1, age:0, radius:0.28, bld:'barracks',
+                cls:'inf', dmgType:'melee', arm:[0,0], bonus:{cav:3},
+                line:{names:['Spearman','Pikeman'], tiers:[{hp:50,atk:5},{hp:62,atk:7}]}},
+    archer:    {name:'Archer',   hp:34, atk:6,  range:5.5, rof:1.7, speed:2.9, sight:7, cost:{wood:35,gold:40},  time:10, pop:1, age:1, radius:0.27, bld:'archery',  proj:11,
+                cls:'arc', dmgType:'pierce', arm:[0,0], bonus:{inf:1.35},
+                line:{names:['Archer','Crossbowman'], tiers:[{hp:34,atk:6},{hp:40,atk:8}]}},
+    knight:    {name:'Knight',   hp:120,atk:12, range:0.3, rof:1.4, speed:3.9, sight:6, cost:{food:70,gold:70},  time:14, pop:1, age:2, radius:0.34, bld:'stable',
+                cls:'cav', dmgType:'melee', arm:[2,2], bonus:{arc:1.6,siege:2},
+                line:{names:['Knight','Cavalier'], tiers:[{hp:120,atk:12},{hp:150,atk:15}]}},
+    warcow:    {name:'War Cow',  hp:220,atk:26, range:0.3, rof:0.9, speed:5.2, sight:7, cost:{},                time:1,  pop:0, age:0, radius:0.36, bld:null,
+                cls:'cav', dmgType:'melee', arm:[2,2]},
+    catapult:  {name:'Catapult', hp:65, atk:32, range:7,   rof:4.5, speed:1.7, sight:7, cost:{wood:140,gold:120},time:20, pop:1, age:3, radius:0.42, bld:'workshop', proj:7, splash:1.3,
+                cls:'siege', dmgType:'siege', arm:[0,3], bonus:{bldg:3}},
+  },
+
+  BLDG_ARMOR: [1,7],     // [melee, pierce] armor for all buildings (siege ignores it)
+
+  // Technologies. bld: where it's researched · req: prerequisite tech id
+  // effect: {stat: meleeAtk|pierceAtk|armor, add} for blacksmith lines,
+  //         {line: unitType, tier} for unit upgrades
+  TECHS: {
+    forging:   {name:'Forging',        bld:'blacksmith', age:1, cost:{food:100,gold:50},  time:25, effect:{stat:'meleeAtk', add:1}},
+    ironCast:  {name:'Iron Casting',   bld:'blacksmith', age:2, cost:{food:180,gold:110}, time:30, req:'forging',  effect:{stat:'meleeAtk', add:1}},
+    blastFurn: {name:'Blast Furnace',  bld:'blacksmith', age:3, cost:{food:280,gold:180}, time:35, req:'ironCast', effect:{stat:'meleeAtk', add:2}},
+    fletching: {name:'Fletching',      bld:'blacksmith', age:1, cost:{food:100,gold:50},  time:25, effect:{stat:'pierceAtk', add:1}},
+    bodkin:    {name:'Bodkin Arrow',   bld:'blacksmith', age:2, cost:{food:180,gold:110}, time:30, req:'fletching', effect:{stat:'pierceAtk', add:1}},
+    bracer:    {name:'Bracer',         bld:'blacksmith', age:3, cost:{food:280,gold:180}, time:35, req:'bodkin',   effect:{stat:'pierceAtk', add:2}},
+    scaleArm:  {name:'Scale Armor',    bld:'blacksmith', age:1, cost:{food:100,gold:50},  time:25, effect:{stat:'armor', add:1}},
+    chainArm:  {name:'Chain Mail',     bld:'blacksmith', age:2, cost:{food:180,gold:110}, time:30, req:'scaleArm', effect:{stat:'armor', add:1}},
+    plateArm:  {name:'Plate Mail',     bld:'blacksmith', age:3, cost:{food:280,gold:180}, time:35, req:'chainArm', effect:{stat:'armor', add:1}},
+    longsword: {name:'Longswordsman',  bld:'barracks',   age:2, cost:{food:150,gold:80},  time:30, effect:{line:'swordsman', tier:1}},
+    champion:  {name:'Champion',       bld:'barracks',   age:3, cost:{food:280,gold:150}, time:40, req:'longsword', effect:{line:'swordsman', tier:2}},
+    pikeman:   {name:'Pikeman',        bld:'barracks',   age:2, cost:{food:160,wood:90},  time:30, effect:{line:'spearman', tier:1}},
+    crossbow:  {name:'Crossbowman',    bld:'archery',    age:2, cost:{food:150,gold:90},  time:30, effect:{line:'archer', tier:1}},
+    cavalier:  {name:'Cavalier',       bld:'stable',     age:3, cost:{food:300,gold:170}, time:40, effect:{line:'knight', tier:1}},
   },
 
   // size (tiles square), hp, cost, work (villager-seconds to build), age,
@@ -53,7 +91,8 @@ const CONFIG = {
     mill:      {name:'Mill',         size:2, hp:220, cost:{wood:100},         work:18, age:0, sight:4, drop:['food']},
     lumbercamp:{name:'Lumber Camp',  size:2, hp:220, cost:{wood:100},         work:18, age:0, sight:4, drop:['wood']},
     miningcamp:{name:'Mining Camp',  size:2, hp:220, cost:{wood:100},         work:18, age:0, sight:4, drop:['gold']},
-    barracks:  {name:'Barracks',     size:3, hp:380, cost:{wood:150},         work:28, age:0, sight:5, trains:['swordsman']},
+    barracks:  {name:'Barracks',     size:3, hp:380, cost:{wood:150},         work:28, age:0, sight:5, trains:['swordsman','spearman']},
+    blacksmith:{name:'Blacksmith',   size:2, hp:280, cost:{wood:150},         work:24, age:1, sight:4},
     archery:   {name:'Archery Range',size:3, hp:330, cost:{wood:160},         work:28, age:1, sight:5, trains:['archer']},
     stable:    {name:'Stable',       size:3, hp:380, cost:{wood:160},         work:28, age:2, sight:5, trains:['knight']},
     workshop:  {name:'Siege Workshop',size:3,hp:330, cost:{wood:200,gold:80}, work:32, age:3, sight:5, trains:['catapult']},
@@ -81,6 +120,10 @@ const CONFIG = {
     campDistance: 10,     // build a drop-off camp when gatherers work farther than this from one
     campMinWorkers: 4,    // ...and at least this many villagers are on that resource
     campMaxPerKind: 2,
+    lossDecay: 0.97,      // per-second decay of the AI's memory of what killed its units
+    techBankFood: 150,    // AI researches techs when banking beyond either of these
+    techBankGold: 120,
+    milFoodReserve: 120,  // while below villager target, military won't spend food into this reserve
   },
 
   CHEATS: {

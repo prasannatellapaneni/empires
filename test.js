@@ -187,5 +187,87 @@ function run(sec){ const dt=0.05; for(let t=0;t<sec;t+=dt) Sim.tick(dt); }
   ok(CFGx.UNITS.villager.hp===32&&CFGx.BLDGS.lumbercamp.drop[0]==='wood', 'config file loads with expected defaults');
 }
 
+// ---------- Test 6b: map connectivity between all starts ----------
+{
+  for(const [seed,opp] of [[88,1],[1234,1],[555,3],[42,3]]){
+    const st=Sim.newGame(seed,{opponents:opp});
+    const tcs=st.bldgs.filter(b=>b.bt==='towncenter');
+    const seen=new Uint8Array(Sim.S*Sim.S);
+    const s0=tcs[0];
+    const q=[((s0.gy+s0.size)*Sim.S)+(s0.gx+1)]; seen[q[0]]=1;
+    while(q.length){
+      const c=q.pop(), cx=c%Sim.S, cy=(c/Sim.S)|0;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=cx+dx, ny=cy+dy;
+        if(nx<0||ny<0||nx>=Sim.S||ny>=Sim.S) continue;
+        const i=ny*Sim.S+nx;
+        if(seen[i]||st.tiles[i]!==Sim.GRASS||st.occ[i]!==0) continue;
+        seen[i]=1; q.push(i);
+      }
+    }
+    const reached=tcs.slice(1).every(tc=>seen[((tc.gy+tc.size)*Sim.S)+(tc.gx+1)]);
+    ok(reached, 'seed '+seed+' ('+(opp+1)+' players): all bases land-connected');
+  }
+}
+
+// ---------- Test 7: combat depth — counters, techs, line upgrades ----------
+{
+  // equal-cost brawls in an open corner of the map
+  function brawl(aType,aN,bType,bN){
+    const st=Sim.newGame(4242);
+    const cx=Sim.S/2, cy=Sim.S/2;
+    const A=[],B=[];
+    for(let i=0;i<aN;i++) A.push(Sim.debugSpawn(0,aType,cx-3+(i%3),cy-4+((i/3)|0)));
+    for(let i=0;i<bN;i++) B.push(Sim.debugSpawn(1,bType,cx+3+(i%3),cy+4+((i/3)|0)));
+    Sim.cmdAttack(A.map(u=>u.id),B[0].id);
+    Sim.cmdAttack(B.map(u=>u.id),A[0].id);
+    for(let t=0;t<90;t+=0.05){
+      Sim.tick(0.05); st.events.length=0;
+      const a=A.filter(u=>!u.dead).length, b=B.filter(u=>!u.dead).length;
+      if(a===0||b===0) return {a,b};
+    }
+    return {a:A.filter(u=>!u.dead).length, b:B.filter(u=>!u.dead).length};
+  }
+  // ~420 resources each side
+  let r=brawl('spearman',6,'knight',3);
+  ok(r.a>0&&r.b===0, 'equal-cost: spearmen beat knights ('+r.a+' spears survive)');
+  r=brawl('archer',6,'spearman',6);
+  ok(r.b===0||r.a>r.b, 'equal-cost: archers beat spearmen (archers '+r.a+' vs spears '+r.b+')');
+  r=brawl('knight',3,'archer',6);
+  ok(r.a>0&&r.b===0, 'equal-cost: knights beat archers ('+r.a+' knights survive)');
+
+  // blacksmith tech retrofits existing units
+  const st=Sim.newGame(88);
+  const sw=Sim.debugSpawn(0,'swordsman',20,20);
+  const atk0=sw.atk;
+  const p=st.players[0]; p.food=5000; p.gold=5000; p.wood=5000; p.age=2;
+  const vills=st.units.filter(u=>u.owner===0&&u.ut==='villager').map(u=>u.id);
+  let spot=null;
+  const tc7=st.bldgs.find(b=>b.owner===0&&b.bt==='towncenter');
+  outer3: for(let r2=4;r2<15;r2++) for(let a=0;a<24;a++){
+    const x=(tc7.x+Math.cos(a/24*6.28)*r2)|0, y=(tc7.y+Math.sin(a/24*6.28)*r2)|0;
+    if(Sim.canPlace('blacksmith',x,y)){spot={x,y};break outer3;}
+  }
+  const bs=Sim.cmdBuildPlace(vills,'blacksmith',spot.x,spot.y);
+  run(30);
+  ok(bs&&bs.done, 'blacksmith constructed');
+  ok(Sim.availTechs(bs.id).includes('forging'), 'forging available at blacksmith');
+  ok(Sim.cmdResearch(bs.id,'forging'), 'forging research queued');
+  run(30);
+  ok(sw.atk===atk0+1&&p.done.forging, 'forging retrofitted existing swordsman (+1 atk: '+atk0+' -> '+sw.atk+')');
+  // line upgrade via barracks
+  let bspot=null;
+  outer4: for(let r2=4;r2<16;r2++) for(let a=0;a<24;a++){
+    const x=(tc7.x+Math.cos(a/24*6.28)*r2)|0, y=(tc7.y+Math.sin(a/24*6.28)*r2)|0;
+    if(Sim.canPlace('barracks',x,y)){bspot={x,y};break outer4;}
+  }
+  const bar=Sim.cmdBuildPlace(vills,'barracks',bspot.x,bspot.y);
+  run(40);
+  ok(bar&&bar.done,'barracks constructed');
+  ok(Sim.cmdResearch(bar.id,'longsword'),'longswordsman upgrade queued');
+  run(35);
+  ok(sw.dispName==='Longswordsman'&&sw.maxhp>70, 'line upgrade retrofits: '+sw.dispName+' hp '+sw.maxhp);
+}
+
 console.log(fails===0 ? '\nALL TESTS PASSED' : '\n'+fails+' TEST(S) FAILED');
 process.exit(fails===0?0:1);
